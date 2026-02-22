@@ -1,0 +1,79 @@
+services:
+    db:
+        image: mariadb:10.6
+        container_name: wp_db
+        restart: unless-stopped
+        environment:
+            MYSQL_DATABASE: ${DB_NAME:-wordpress}
+            MYSQL_USER: ${DB_USER:-wordpress}
+            MYSQL_PASSWORD: ${DB_PASSWORD:-wordpress}
+            MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+        ports:
+            - "127.0.0.1:${DB_PORT:-3307}:3306"
+        volumes:
+            - db_data:/var/lib/mysql
+        healthcheck:
+            test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+            interval: 10s
+            timeout: 5s
+            retries: 10
+
+    wordpress:
+        image: wordpress:php8.4-apache
+        container_name: wp_app
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+        environment:
+            WORDPRESS_DB_HOST: db:3306
+            WORDPRESS_DB_USER: ${DB_USER:-wordpress}
+            WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-wordpress}
+            WORDPRESS_DB_NAME: ${DB_NAME:-wordpress}
+        ports:
+            - "127.0.0.1:${WP_PORT:-8080}:80"
+        volumes:
+            - wp_data:/var/www/html
+            - ./:/var/www/html/wp-content/plugins/${PLUGIN_SLUG:-exmoment-author}:delegated
+        healthcheck:
+            test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 80) ? 0 : 1);"]
+            interval: 10s
+            timeout: 5s
+            retries: 10
+
+    wpcli:
+        image: wordpress:cli-php8.4
+        container_name: wp_cli
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+            wordpress:
+                condition: service_started
+        entrypoint:
+            - bash
+            - -lc
+        command: sleep infinity
+        volumes:
+            - wp_data:/var/www/html
+            - ./:/var/www/html/wp-content/plugins/${PLUGIN_SLUG:-exmoment-author}:delegated
+
+    composer:
+        image: php:8.4.17-cli
+        container_name: wp_composer
+        restart: unless-stopped
+        depends_on:
+            wordpress:
+                condition: service_started
+        working_dir: /app
+        command:
+            - bash
+            - -lc
+            - if ! command -v composer >/dev/null 2>&1; then curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php && php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer && rm -f /tmp/composer-setup.php; fi; sleep infinity
+        volumes:
+            - ./:/app:delegated
+            - wp_data:/var/www/html
+
+volumes:
+    db_data:
+    wp_data:

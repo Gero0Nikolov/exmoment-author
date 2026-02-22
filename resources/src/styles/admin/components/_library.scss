@@ -1,0 +1,298 @@
+.exmoau-library {
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.exmoau-library__header {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.exmoau-library__header-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.exmoau-library__header-row--actions {
+    justify-content: flex-start;
+}
+
+.exmoau-library__header-row--state {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.exmoau-library__header-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.exmoau-library__status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #2271b1;
+}
+
+.exmoau-library__status--error {
+    color: #d63638;
+}
+
+.exmoau-library__status-message {
+    line-height: 1.4;
+}
+
+.exmoau-library__status .spinner {
+    margin: 0;
+    visibility: hidden;
+}
+
+.exmoau-library__status .spinner.is-active {
+    visibility: visible;
+}
+
+.exmoau-library__notice {
+    width: 100%;
+}
+
+.exmoau-library__body {
+    display: block;
+    word-wrap: break-word;
+    gap: 24px;
+}
+
+@media (min-width: 992px) {
+    .exmoau-library__body {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.exmoau-library__pane {
+    padding: 16px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+}
+
+.exmoau-library__content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 160px;
+}
+
+.exmoau-library__loader {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.88);
+    border-radius: 4px;
+    z-index: 2;
+}
+
+.exmoau-library__loader.is-active {
+    display: flex;
+}
+
+.exmoau-library__loader .spinner {
+    visibility: visible;
+}
+
+.exmoau-library__loader-text {
+    font-size: 14px;
+    color: #50575e;
+}
+
+.exmoau-library__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.exmoau-library__item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid #e2e4e7;
+    border-radius: 4px;
+    background-color: #f6f7f7;
+}
+
+.exmoau-library__item--highlight {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+}
+
+.exmoau-library__item-trigger {
+    text-align: left;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.exmoau-library__item-trigger:focus {
+    outline: 2px solid #2271b1;
+    outline-offset: 2px;
+}
+
+.exmoau-library__item-meta {
+    font-size: 13px;
+    color: #50575e;
+}
+
+.exmoau-library__item-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.exmoau-library__pagination {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.exmoau-library__pagination-summary {
+    font-size: 14px;
+    color: #50575e;
+}
+
+.exmoau-library__empty-message {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #646970;
+}
+
+.exmoau-library__modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 9999;
+}
+
+.exmoau-library__modal-dialog {
+    width: 100%;
+    max-width: 720px;
+    background: #fff;
+    border-radius: 6px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+}
+
+.exmoau-library__modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #dcdcde;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    word-wrap: break-word;
+    line-height: 1.25;
+}
+
+.exmoau-library__modal-title {
+    margin: 0;
+    font-size: 18px;
+    width: calc(100% - 72px);
+}
+
+.exmoau-library__modal-body {
+    padding: 16px 20px 20px;
+    overflow: auto;
+    position: relative;
+    min-height: 160px;
+}
+
+.exmoau-library__modal-body pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+.exmoau-library__loader--modal {
+    background: rgba(255, 255, 255, 0.94);
+}
+
+/* -------------------------------------------------------------------------- */
+/* AI Setup                                                                   */
+/* -------------------------------------------------------------------------- */
+/*
+ * Spacing scale for AI Setup:
+ * base unit = 0.5rem (8px) and multiples (0, 0.5rem, 1rem, 1.5rem, 2rem).
+ * Apply the same rhythm to headings, descriptions, field groups, and tab panes.
+ */
+
+#exmoau_ai_behaviour_mode_description {
+    margin: 0.5rem 0 1rem;
+    line-height: 1.5;
+}
+
+.exmoau-settings__behaviour-panes {
+    margin-top: 1.5rem;
+}
+
+.exmoau-settings__behaviour-pane {
+    margin: 0;
+    padding: 0;
+}
+
+.exmoau-settings__behaviour-pane-title {
+    margin: 0 0 1rem;
+}
+
+.exmoau-settings__behaviour-pane-description {
+    margin: 0 0 1.5rem;
+    line-height: 1.5;
+}
+
+.exmoau-settings__field-group {
+    margin: 0 0 1.5rem;
+}
+
+.exmoau-settings__field-group:last-child {
+    margin-bottom: 0;
+}
+
+.exmoau-settings__field-label {
+    display: block;
+    margin: 0 0 0.5rem;
+}
+
+.exmoau-settings__field-control {
+    width: 100%;
+}
+
+.exmoau-settings__field-group > .description {
+    margin: 0.5rem 0 0;
+    line-height: 1.5;
+}

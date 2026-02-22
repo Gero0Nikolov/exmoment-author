@@ -1,0 +1,37 @@
+name: Docs lint
+
+on:
+    pull_request:
+        paths:
+            - 'documentation/**'
+            - '.github/workflows/docs-lint.yml'
+            - 'documentation/.markdownlint.json'
+            - 'documentation/.lychee.toml'
+            - 'CONTRIBUTING.md'
+
+jobs:
+    markdownlint:
+        name: Markdown lint
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '18'
+            - name: Install markdownlint-cli
+              run: npm install -g markdownlint-cli@0.39.0
+            - name: Run markdownlint
+              run: markdownlint --config documentation/.markdownlint.json 'documentation/**/*.md'
+
+    link-check:
+        name: Markdown link check
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
+            - name: Run lychee link checker
+              uses: lycheeverse/lychee-action@v1
+              with:
+                  args: --config documentation/.lychee.toml 'documentation/**/*.md'

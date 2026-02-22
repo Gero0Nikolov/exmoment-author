@@ -1,0 +1,33 @@
+.post-type-exmoau_job #submitpost #misc-publishing-actions .exmoau-job-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px;
+    border-top: 1px solid #ccd0d4;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.post-type-exmoau_job #submitpost #misc-publishing-actions .exmoau-job-status__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.post-type-exmoau_job #submitpost #misc-publishing-actions .exmoau-job-status--executed {
+    color: #1f7a37;
+}
+
+.post-type-exmoau_job #submitpost #misc-publishing-actions .exmoau-job-status--executed .exmoau-job-status__dot {
+    background-color: #46b450;
+}
+
+.post-type-exmoau_job #submitpost #misc-publishing-actions .exmoau-job-status--pending {
+    color: #6c7781;
+}
+
+.post-type-exmoau_job #submitpost #misc-publishing-actions .exmoau-job-status--pending .exmoau-job-status__dot {
+    background-color: #a0a5aa;
+}

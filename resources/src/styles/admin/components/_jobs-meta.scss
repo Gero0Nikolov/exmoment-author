@@ -1,0 +1,332 @@
+.exmoau-job-time {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--wp-admin-border-color, #c3c4c7);
+    border-radius: 4px;
+    background-color: #f6f7f7;
+    font-size: 13px;
+    line-height: 1.5;
+
+    &__label {
+        font-weight: 600;
+        margin-right: 0.5rem;
+    }
+
+    &__current {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: baseline;
+        font-variant-numeric: tabular-nums;
+    }
+
+    &__clock {
+        font-weight: 600;
+    }
+
+    &__zone {
+        color: #50575e;
+    }
+
+    &__snapshot {
+        display: block;
+        margin-top: 0.25rem;
+        color: #6c7781;
+        font-size: 12px;
+    }
+}
+
+.exmoau-job-type {
+    // Spacing scale: use Bootstrap-aligned rhythm (0.25rem, 0.5rem, 1rem, 1.5rem, 3rem).
+    margin-top: 1rem;
+
+    .description {
+        margin-top: 0.5rem;
+        margin-bottom: 0;
+    }
+
+    &__options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin: 0;
+        padding: 0;
+    }
+
+    &__option {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+
+        input[type="radio"] {
+            margin: 0;
+        }
+    }
+
+    &__pane {
+        margin-top: 1rem;
+    }
+
+    &__field {
+        display: block;
+        margin-bottom: 0.5rem;
+    }
+
+    &__label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+    }
+
+    &__repeat {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    &__repeat-day {
+        display: grid;
+        gap: 1rem;
+        border: 1px solid var(--wp-admin-border-color, #c3c4c7);
+        border-radius: 4px;
+        padding: 1rem;
+    }
+
+    &__repeat-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        margin: 0;
+
+        input[type="checkbox"],
+        input[type="radio"] {
+            margin: 0;
+        }
+
+        span {
+            display: inline-block;
+        }
+    }
+
+    &__repeat-times {
+        display: grid;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    &__repeat-time-list {
+        display: grid;
+        gap: 0.5rem;
+    }
+
+    &__repeat-time {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    &__add-time {
+        margin-top: 0.5rem;
+    }
+
+    &__remove-time {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.5rem 1rem;
+        border: 1px solid #d63638;
+        border-radius: 0.25rem;
+        background-color: #d63638;
+        color: #fff;
+        text-decoration: none;
+        transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+
+        &:hover,
+        &:focus {
+            color: #b32d2e !important;
+            border-color: #b32d2e !important;
+        }
+
+        &:focus-visible {
+            box-shadow: 0 0 0 0.2rem rgba(214, 54, 56, 0.35);
+        }
+
+        &:disabled,
+        &[aria-disabled='true'] {
+            background-color: #f6d8d9;
+            border-color: #f6d8d9;
+            color: #7d1213;
+            cursor: not-allowed;
+        }
+    }
+
+    &__pane.exmoau-is-hidden,
+    &__repeat-times.exmoau-is-hidden {
+        display: none;
+    }
+}
+
+.exmoau-job-setup {
+
+    &__checkbox {
+        input[type="checkbox"] {
+            margin: 0;
+        }
+    }
+
+    &__directive {
+        display: grid;
+        gap: 1rem;
+    }
+
+    &__group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+
+        &:first-child {
+            margin-bottom: 8px;
+        }
+    }
+
+    &__field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-bottom: 0;
+    }
+
+    &__label {
+        font-weight: 600;
+    }
+
+    &__description {
+        margin: 0;
+    }
+
+    &__author-select {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+.exmoau-job-setup {
+    position: relative;
+}
+.exmoau-job-setup__tabs.nav-tab-wrapper {
+    margin-bottom: 0;
+}
+.exmoau-job-setup__panel {
+    display: none;
+    padding: 1rem;
+    border: 1px solid var(--wp-admin-border-color, #c3c4c7);
+    border-top: none;
+    background: #fff;
+}
+.exmoau-job-setup__panel.is-active {
+    display: block;
+}
+.exmoau-job-setup__panel.exmoau-is-hidden {
+    display: none;
+}
+.exmoau-job-setup__tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+.exmoau-job-setup__tile {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+}
+.exmoau-job-setup__tile-label {
+    display: block;
+    font-weight: 600;
+}
+.exmoau-job-setup__mixture-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+.exmoau-job-setup__pagination {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+.exmoau-job-setup__pagination-status {
+    font-weight: 600;
+}
+.exmoau-job-setup__checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.exmoau-job-setup__loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.82);
+    z-index: 2;
+}
+.exmoau-job-setup__loading.is-active {
+    display: flex;
+}
+.exmoau-job-setup__loading .spinner {
+    visibility: visible;
+}
+.exmoau-job-setup__directive {
+    display: grid;
+    gap: 1rem;
+}
+.exmoau-job-setup__group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.exmoau-job-setup__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0;
+}
+.exmoau-job-setup__label {
+    font-weight: 600;
+}
+.exmoau-job-setup__description {
+    margin: 0;
+}
+.exmoau-job-setup__description + .exmoau-job-setup__author-controls {
+    margin-top: 0;
+}
+.exmoau-job-setup__author-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.exmoau-job-setup__author-search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.exmoau-job-setup__author-search input[type="search"] {
+    flex: 1 1 auto;
+}
+.exmoau-job-setup__author-select {
+    width: 100%;
+    max-width: 100%;
+}
+.exmoau-job-setup__author-pagination {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.exmoau-job-setup__author-status {
+    margin: 0;
+}
