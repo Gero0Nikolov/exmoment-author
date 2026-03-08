@@ -11,7 +11,7 @@ use OpenAI\Responses\Meta\MetaInformation;
  *
  * @internal
  */
-final readonly class AdaptableResponse
+final class AdaptableResponse
 {
     /**
      * Creates a new AdaptableResponse value object.

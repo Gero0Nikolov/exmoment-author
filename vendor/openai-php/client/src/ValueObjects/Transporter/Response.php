@@ -11,7 +11,7 @@ use OpenAI\Responses\Meta\MetaInformation;
  *
  * @internal
  */
-final readonly class Response
+final class Response
 {
     /**
      * Creates a new Response value object.
