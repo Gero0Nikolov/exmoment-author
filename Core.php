@@ -689,6 +689,10 @@ class ExMomentAuthorCoreSystem {
             return false;
         }
 
+        if (current_user_can('manage_options')) {
+            return true;
+        }
+
         if (strpos($hookSuffix, 'exmoau-') !== false || strpos($hookSuffix, 'exmoment-author') !== false) {
             return true;
         }

@@ -62,8 +62,9 @@ window.addEventListener('load', (event) => {
             loadWhen: () => {
                 const config = (window.ExMomentAuthorAdminConfig || {});
                 const libraryConfig = (config.library || {});
+                const libraryRoot = document.querySelector('[data-exmoau-library]');
 
-                return (libraryConfig.hasContent === false);
+                return (libraryConfig.hasContent === false && !libraryRoot);
             }
         },
         {
