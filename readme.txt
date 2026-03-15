@@ -4,7 +4,7 @@ Donate link: https://author.exmoment.com
 Tags: ai, automation, content creation, openai, gpt, editorial workflow, scheduling
 Requires at least: 6.0
 Tested up to: 6.9
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -48,5 +48,8 @@ OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
 4. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.0.1 =
+Maintenance release with the library welcome popup fix for the Library admin page.
+
 = 1.0.0 =
 Initial public release with OpenAI integration, Jobs scheduler (admin-only), Library management, and admin settings.

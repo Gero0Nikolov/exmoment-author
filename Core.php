@@ -339,7 +339,7 @@ class ExMomentAuthorCoreSystem {
             'resourceVersion' => (
                 $isDevelopmentHost ?
                 gmdate('YmdHis') :
-                '1.0.0'
+                '1.0.1'
             ),
             'base' => [
                 'path' => $pluginPath,
