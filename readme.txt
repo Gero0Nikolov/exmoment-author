@@ -1,15 +1,3 @@
-=== ExMoment Author ===
-Contributors: exmoment
-Donate link: https://author.exmoment.com
-Tags: ai, automation, content creation, openai, gpt, editorial workflow, scheduling
-Requires at least: 6.0
-Tested up to: 6.9
-Stable tag: 1.0.1
-License: GPLv2 or later
-License URI: https://www.gnu.org/licenses/gpl-2.0.html
-
-AI-assisted content authoring, scheduling, and editorial automation for WordPress.
-
 == Description ==
 ExMoment Author is an intelligent content automation system by **ExMoment Ltd**.
 
@@ -22,7 +10,7 @@ Key features:
 - Library module for reusable content bundles (import, preview, manage)
 - Settings dashboard for API keys, model selection, and diagnostics
 
-Documentation and examples: https://github.com/Gero0Nikolov/exmoment-author
+Documentation and examples: <a href="https://github.com/Gero0Nikolov/exmoment-author">https://github.com/Gero0Nikolov/exmoment-author</a>
 
 == External Services ==
 ExMoment Author uses the OpenAI API to generate or optimize content when an administrator explicitly triggers an AI action inside the plugin.
@@ -32,14 +20,18 @@ Data sent: Only the text and instructions provided in the ExMoment Author UI for
 Data not sent: ExMoment Author does not automatically transmit site content, user data, or unrelated WordPress data.
 When sent: Only on explicit admin/user action inside the plugin.
 
-OpenAI Terms: https://openai.com/terms
-OpenAI Privacy Policy: https://openai.com/policies/privacy-policy
+OpenAI Terms: <a href="https://openai.com/terms">https://openai.com/terms</a>
+OpenAI Privacy Policy: <a href="https://openai.com/policies/privacy-policy">https://openai.com/policies/privacy-policy</a>
 
 == Screenshots ==
 1. ExMoment Author dashboard
 2. AI Setup tab – behaviour modes
 3. Jobs list (admin-only scheduler)
 4. Library management
+5. ExMoment Help? - Internal links
+6. Single > Instant - Direct workflow
+7. Single > Scheduled - Scheduled workflow that runs once
+8. Repeating > Scheduled - Scheduled workflow that runs once at the given day and time
 
 == Installation ==
 1. Upload the plugin to `/wp-content/plugins/exmoment-author/` or install via the Plugins screen.
