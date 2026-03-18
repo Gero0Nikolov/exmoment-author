@@ -52,6 +52,9 @@ OpenAI Privacy Policy: <a href="https://openai.com/policies/privacy-policy">http
 4. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.0.2 =
+Maintenance release updated screenshots and readme.
+
 = 1.0.1 =
 Maintenance release with the library welcome popup fix for the Library admin page.
 
