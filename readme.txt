@@ -1,3 +1,15 @@
+=== ExMoment Author ===
+Contributors: exmoment
+Donate link: https://author.exmoment.com
+Tags: ai, automation, content creation, openai, gpt, editorial workflow, scheduling
+Requires at least: 6.0
+Tested up to: 6.9
+Stable tag: 1.0.1
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+
+AI-assisted content authoring, scheduling, and editorial automation for WordPress.
+
 == Description ==
 ExMoment Author is an intelligent content automation system by **ExMoment Ltd**.
 
