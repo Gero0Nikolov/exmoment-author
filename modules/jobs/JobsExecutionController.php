@@ -46,11 +46,7 @@ class JobsExecutionController {
     private const MIN_TRUNCATED_SOURCE_CHARACTERS = 600;
     private const REGISTRY_DEBUG_PROBE_LIMIT = 25;
 
-    private const CLOSING_SYSTEM_MESSAGE = 'Produce a single, publication-ready article that synthesizes the provided sources. Do not copy text verbatim. Return the final SEO-ready article with exactly one title and the body only—no commentary or diagnostics. The response must begin with exactly one top-level title (Markdown: "# <title>" or HTML: "<h1>title</h1>") followed by a blank line, then the article body. Do not repeat the title text anywhere in the body. After the article body, append a hidden metadata block delimited by "===SEO_META_START===" and "===SEO_META_END===" on their own lines. Inside the block, include exactly three lines: "SEO_TITLE: <seo title (maximum 60 characters)>", "SEO_DESCRIPTION: <seo description (maximum 155 characters)>", and "FOCUS_KEYPHRASE: <3-5 word keyphrase (maximum 60 characters)>". These metadata lines must not be part of the human-facing article and should comply with the stated character limits without truncating words when possible. Add the SEO data in this format in the end one item per line ===SEO_META_START===
-SEO_TITLE: Lifesaving Tactics for a Changing Marketplace
-SEO_DESCRIPTION: Test new ads, refresh offers, diversify, choose work you enjoy, use marketplaces, and set up secure payment gateways for lasting resilience.
-FOCUS_KEYPHRASE: changing marketplace tactics
-===SEO_META_END===';
+    private const CLOSING_SYSTEM_MESSAGE = 'Produce a single, publication-ready article that synthesizes the provided sources. Do not copy text verbatim. Return exactly one top-level title and the article body only, with no commentary, diagnostics, or visible SEO labels. The response must begin with exactly one top-level title (Markdown: "# <title>" or HTML: "<h1>title</h1>") followed by a blank line, then the article body. Do not repeat the title text anywhere in the body. After the article body, append exactly one hidden metadata block delimited by "===SEO_META_START===" and "===SEO_META_END===" on their own lines. Inside the block include exactly these three single-line entries and nothing else: "SEO_TITLE: <plain title up to 60 characters>", "SEO_DESCRIPTION: <plain description up to 155 characters>", and "FOCUS_KEYPHRASE: <plain concise keyphrase of 2 to 6 words>". Do not use quotes, commentary, examples, extra labels, bullet points, markdown, or additional lines inside the metadata block.';
 
     private const SEO_META_START = '===SEO_META_START===';
     private const SEO_META_END = '===SEO_META_END===';
@@ -1042,9 +1038,18 @@ FOCUS_KEYPHRASE: changing marketplace tactics
         $parsed = $this->parseArticleResponse($content);
         $title = is_string($parsed['title'] ?? '') ? $parsed['title'] : '';
         $body = is_string($parsed['body'] ?? '') ? $parsed['body'] : '';
-        $seoTitle = is_string($parsed['seo_title'] ?? '') ? $parsed['seo_title'] : '';
-        $seoDescription = is_string($parsed['seo_description'] ?? '') ? $parsed['seo_description'] : '';
-        $focusKeyphrase = is_string($parsed['focus_keyphrase'] ?? '') ? $parsed['focus_keyphrase'] : '';
+        $seoMeta = (isset($parsed['seo_meta']) && is_array($parsed['seo_meta'])) ? $parsed['seo_meta'] : array();
+
+        $invalidSeoFields = isset($seoMeta['invalid_fields']) && is_array($seoMeta['invalid_fields'])
+            ? $seoMeta['invalid_fields']
+            : array();
+
+        if (!empty($invalidSeoFields)) {
+            $encodedInvalidFields = wp_json_encode($invalidSeoFields);
+            if (is_string($encodedInvalidFields) && $encodedInvalidFields !== '') {
+                $this->logDebug('Job %d skipped invalid SEO fields: %s', $jobId, $encodedInvalidFields);
+            }
+        }
 
         if ($body === '') {
             $result['error'] = esc_html__('The AI response did not contain article content.', 'exmoment-author');
@@ -1067,7 +1072,7 @@ FOCUS_KEYPHRASE: changing marketplace tactics
 
         $postId = (int) $insertResult;
         $this->storeBackReference($jobId, $postId);
-        $this->maybePopulateYoastSeoMeta($postId, $seoTitle, $seoDescription, $focusKeyphrase);
+        $this->maybePopulateYoastSeoMeta($postId, $seoMeta);
         $this->maybeGenerateFeaturedImage($controller, $postId);
 
         $duration = microtime(true) - $startTime;
@@ -2219,76 +2224,108 @@ runcated: bool, removed_invalid: array<int, string>}
      * Parse the AI response into title, body, and SEO metadata components.
      *
      * @param string $content Raw AI response text.
-     * @return array{title:string,body:string,seo_title:string,seo_description:string,focus_keyphrase:string}
+     * @return array{
+     *     title:string,
+     *     body:string,
+     *     seo_meta:array{
+     *         seo_title:string,
+     *         seo_description:string,
+     *         focus_keyphrase:string,
+     *         invalid_fields:array<string, string>
+     *     }
+     * }
      */
     private function parseArticleResponse($content) {
         $content = is_string($content) ? $content : '';
 
         if ($content === '') {
-            return [
+            return array(
                 'title' => '',
                 'body' => '',
-                'seo_title' => '',
-                'seo_description' => '',
-                'focus_keyphrase' => '',
-            ];
+                'seo_meta' => array(
+                    'seo_title' => '',
+                    'seo_description' => '',
+                    'focus_keyphrase' => '',
+                    'invalid_fields' => array(),
+                ),
+            );
         }
 
         $seoExtraction = $this->extractSeoMetadata($content);
         $titleAndBody = $this->extractTitleAndBody($seoExtraction['content']);
 
-        return [
+        return array(
             'title' => $titleAndBody['title'],
             'body' => $titleAndBody['body'],
-            'seo_title' => $seoExtraction['seo_title'],
-            'seo_description' => $seoExtraction['seo_description'],
-            'focus_keyphrase' => $seoExtraction['focus_keyphrase'],
-        ];
+            'seo_meta' => array(
+                'seo_title' => $seoExtraction['seo_title'],
+                'seo_description' => $seoExtraction['seo_description'],
+                'focus_keyphrase' => $seoExtraction['focus_keyphrase'],
+                'invalid_fields' => $seoExtraction['invalid_fields'],
+            ),
+        );
     }
 
     /**
      * Extract SEO metadata block from the AI response body.
      *
      * @param string $content AI response body.
-     * @return array{title:string,description:string,focus_keyphrase:string}
+     * @return array{
+     *     content:string,
+     *     seo_title:string,
+     *     seo_description:string,
+     *     focus_keyphrase:string,
+     *     invalid_fields:array<string, string>
+     * }
      */
     private function extractSeoMetadata($content) {
         $content = is_string($content) ? $content : '';
 
         if ($content === '') {
-            return [
+            return array(
                 'content' => '',
                 'seo_title' => '',
                 'seo_description' => '',
                 'focus_keyphrase' => '',
-            ];
+                'invalid_fields' => array(),
+            );
         }
 
         $metaStart = strpos($content, self::SEO_META_START);
         $metaEnd = strpos($content, self::SEO_META_END);
 
         if ($metaStart === false || $metaEnd === false || $metaEnd <= $metaStart) {
-            return [
+            return array(
                 'content' => trim($content),
                 'seo_title' => '',
                 'seo_description' => '',
                 'focus_keyphrase' => '',
-            ];
+                'invalid_fields' => array(),
+            );
         }
 
         $metaBodyStart = $metaStart + strlen(self::SEO_META_START);
         $metaBodyLength = $metaEnd - $metaBodyStart;
         $metaBody = substr($content, $metaBodyStart, $metaBodyLength);
 
-        $seoTitle = '';
-        $seoDescription = '';
-        $focusKeyphrase = '';
+        $rawFields = array(
+            'SEO_TITLE' => null,
+            'SEO_DESCRIPTION' => null,
+            'FOCUS_KEYPHRASE' => null,
+        );
+        $invalidFields = array();
 
         if (is_string($metaBody) && $metaBody !== '') {
             $lines = preg_split('/\r\n|\r|\n/', $metaBody);
 
             if (is_array($lines)) {
                 foreach ($lines as $line) {
+                    $line = trim($line);
+
+                    if ($line === '') {
+                        continue;
+                    }
+
                     $segments = explode(':', $line, 2);
 
                     if (count($segments) !== 2) {
@@ -2296,33 +2333,46 @@ runcated: bool, removed_invalid: array<int, string>}
                     }
 
                     $label = strtoupper(trim($segments[0]));
-                    $value = $this->normalizeSeoField($segments[1]);
-
-                    if ($label === 'SEO_TITLE' && $seoTitle === '') {
-                        $seoTitle = $value;
+                    if (!array_key_exists($label, $rawFields)) {
+                        continue;
                     }
 
-                    if ($label === 'SEO_DESCRIPTION' && $seoDescription === '') {
-                        $seoDescription = $value;
+                    if ($rawFields[$label] !== null) {
+                        $invalidFields[strtolower($label)] = 'Duplicate metadata field.';
+                        continue;
                     }
 
-                    if ($label === 'FOCUS_KEYPHRASE' && $focusKeyphrase === '') {
-                        $focusKeyphrase = $value;
-                    }
+                    $rawFields[$label] = $segments[1];
                 }
             }
+        }
+
+        $titleValidation = $this->validateSeoTitle($rawFields['SEO_TITLE']);
+        if (!empty($titleValidation['reason'])) {
+            $invalidFields['seo_title'] = $titleValidation['reason'];
+        }
+
+        $descriptionValidation = $this->validateSeoDescription($rawFields['SEO_DESCRIPTION']);
+        if (!empty($descriptionValidation['reason'])) {
+            $invalidFields['seo_description'] = $descriptionValidation['reason'];
+        }
+
+        $focusValidation = $this->validateFocusKeyphrase($rawFields['FOCUS_KEYPHRASE']);
+        if (!empty($focusValidation['reason'])) {
+            $invalidFields['focus_keyphrase'] = $focusValidation['reason'];
         }
 
         $cleanContentPrefix = substr($content, 0, $metaStart);
         $cleanContentSuffix = substr($content, $metaEnd + strlen(self::SEO_META_END));
         $cleanContent = (string) ($cleanContentPrefix . $cleanContentSuffix);
 
-        return [
+        return array(
             'content' => trim($cleanContent),
-            'seo_title' => $seoTitle,
-            'seo_description' => $seoDescription,
-            'focus_keyphrase' => $focusKeyphrase,
-        ];
+            'seo_title' => $titleValidation['valid'] ? $titleValidation['value'] : '',
+            'seo_description' => $descriptionValidation['valid'] ? $descriptionValidation['value'] : '',
+            'focus_keyphrase' => $focusValidation['valid'] ? $focusValidation['value'] : '',
+            'invalid_fields' => $invalidFields,
+        );
     }
 
     /**
@@ -2385,19 +2435,47 @@ runcated: bool, removed_invalid: array<int, string>}
      * @return string
      */
     private function normalizeSeoField($value) {
-        if (!is_string($value)) {
-            return '';
-        }
+        return $this->normalizeSeoFieldValue($value);
+    }
 
-        $value = trim($value);
+    /**
+     * Normalize SEO metadata before validation.
+     *
+     * @param mixed $value Raw metadata value.
+     * @return string
+     */
+    private function normalizeSeoFieldValue($value) {
+        return YoastSeoIntegration::normalizeSeoValue($value);
+    }
 
-        if ($value === '') {
-            return '';
-        }
+    /**
+     * Validate a parsed SEO title.
+     *
+     * @param mixed $value Parsed title candidate.
+     * @return array{valid:bool,value:string,reason:string}
+     */
+    private function validateSeoTitle($value) {
+        return YoastSeoIntegration::validateSeoTitleValue($value);
+    }
 
-        $value = sanitize_text_field($value);
+    /**
+     * Validate a parsed SEO description.
+     *
+     * @param mixed $value Parsed description candidate.
+     * @return array{valid:bool,value:string,reason:string}
+     */
+    private function validateSeoDescription($value) {
+        return YoastSeoIntegration::validateSeoDescriptionValue($value);
+    }
 
-        return trim($value);
+    /**
+     * Validate a parsed focus keyphrase.
+     *
+     * @param mixed $value Parsed focus keyphrase candidate.
+     * @return array{valid:bool,value:string,reason:string}
+     */
+    private function validateFocusKeyphrase($value) {
+        return YoastSeoIntegration::validateFocusKeyphraseValue($value);
     }
 
     /**
@@ -2475,29 +2553,19 @@ runcated: bool, removed_invalid: array<int, string>}
      * Populate Yoast SEO meta for generated posts when possible.
      *
      * @param int    $postId          Generated post identifier.
-     * @param string $seoTitle        Parsed SEO title from GPT response.
-     * @param string $seoDescription  Parsed SEO description from GPT response.
-     * @param string $focusKeyphrase  Parsed focus keyphrase from GPT response.
+     * @param array<string, mixed> $seoMeta Validated SEO metadata payload.
      * @return void
      */
-    private function maybePopulateYoastSeoMeta($postId, $seoTitle, $seoDescription, $focusKeyphrase) {
+    private function maybePopulateYoastSeoMeta($postId, array $seoMeta) {
         $postId = absint($postId);
 
         if ($postId < 1) {
             return;
         }
 
-        if (!is_string($seoTitle)) {
-            $seoTitle = '';
-        }
-
-        if (!is_string($seoDescription)) {
-            $seoDescription = '';
-        }
-
-        $seoTitle = $this->normalizeSeoField($seoTitle);
-        $seoDescription = $this->normalizeSeoField($seoDescription);
-        $focusKeyphrase = $this->normalizeSeoField($focusKeyphrase);
+        $seoTitle = isset($seoMeta['seo_title']) ? $this->normalizeSeoFieldValue($seoMeta['seo_title']) : '';
+        $seoDescription = isset($seoMeta['seo_description']) ? $this->normalizeSeoFieldValue($seoMeta['seo_description']) : '';
+        $focusKeyphrase = isset($seoMeta['focus_keyphrase']) ? $this->normalizeSeoFieldValue($seoMeta['focus_keyphrase']) : '';
 
         if ($seoTitle === '' && $seoDescription === '' && $focusKeyphrase === '') {
             return;

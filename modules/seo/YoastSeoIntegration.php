@@ -12,6 +12,16 @@ class YoastSeoIntegration {
     private const YOAST_TITLE_META_KEY = '_yoast_wpseo_title';
     private const YOAST_DESCRIPTION_META_KEY = '_yoast_wpseo_metadesc';
     private const YOAST_FOCUS_KEY_META_KEY = '_yoast_wpseo_focuskw';
+    private const SEO_TITLE_MIN_LENGTH = 10;
+    private const SEO_TITLE_MAX_LENGTH = 60;
+    private const SEO_DESCRIPTION_MIN_LENGTH = 50;
+    private const SEO_DESCRIPTION_MAX_LENGTH = 155;
+    private const FOCUS_KEYPHRASE_MIN_WORDS = 2;
+    private const FOCUS_KEYPHRASE_MAX_WORDS = 6;
+    private const FOCUS_KEYPHRASE_MAX_LENGTH = 60;
+    private const BAD_EXAMPLE_TITLE = 'Lifesaving Tactics for a Changing Marketplace';
+    private const BAD_EXAMPLE_DESCRIPTION = 'Test new ads, refresh offers, diversify, choose work you enjoy, use marketplaces, and set up secure payment gateways for lasting resilience.';
+    private const BAD_EXAMPLE_FOCUS_KEYPHRASE = 'changing marketplace tactics';
     /**
      * Cached Yoast detection result for the current request.
      *
@@ -57,11 +67,15 @@ class YoastSeoIntegration {
             return;
         }
 
-        $seoTitle = $this->sanitizeSeoField($seoTitle);
-        $seoDescription = $this->sanitizeSeoField($seoDescription);
-        $focusKeyphrase = $this->sanitizeFocusKeyphrase($focusKeyphrase);
+        $titleValidation = self::validateSeoTitleValue($seoTitle);
+        $descriptionValidation = self::validateSeoDescriptionValue($seoDescription);
+        $focusKeyphraseValidation = self::validateFocusKeyphraseValue($focusKeyphrase);
 
-        if ($seoTitle === '' && $seoDescription === '' && $focusKeyphrase === '') {
+        if (
+            !$titleValidation['valid'] &&
+            !$descriptionValidation['valid'] &&
+            !$focusKeyphraseValidation['valid']
+        ) {
             return;
         }
 
@@ -78,21 +92,187 @@ class YoastSeoIntegration {
         $existingDescription = get_post_meta($postId, self::YOAST_DESCRIPTION_META_KEY, true);
         $existingFocusKeyphrase = get_post_meta($postId, self::YOAST_FOCUS_KEY_META_KEY, true);
 
-        $currentTitle = is_string($existingTitle) ? trim($existingTitle) : '';
-        $currentDescription = is_string($existingDescription) ? trim($existingDescription) : '';
-        $currentFocusKeyphrase = is_string($existingFocusKeyphrase) ? trim($existingFocusKeyphrase) : '';
-
-        if ($seoTitle !== '' && $currentTitle === '') {
-            update_post_meta($postId, self::YOAST_TITLE_META_KEY, $seoTitle);
+        if (
+            $titleValidation['valid'] &&
+            $this->canOverwriteExistingSeoValue('title', $existingTitle)
+        ) {
+            update_post_meta($postId, self::YOAST_TITLE_META_KEY, $titleValidation['value']);
         }
 
-        if ($seoDescription !== '' && $currentDescription === '') {
-            update_post_meta($postId, self::YOAST_DESCRIPTION_META_KEY, $seoDescription);
+        if (
+            $descriptionValidation['valid'] &&
+            $this->canOverwriteExistingSeoValue('description', $existingDescription)
+        ) {
+            update_post_meta($postId, self::YOAST_DESCRIPTION_META_KEY, $descriptionValidation['value']);
         }
 
-        if ($focusKeyphrase !== '' && $currentFocusKeyphrase === '') {
-            update_post_meta($postId, self::YOAST_FOCUS_KEY_META_KEY, $focusKeyphrase);
+        if (
+            $focusKeyphraseValidation['valid'] &&
+            $this->canOverwriteExistingSeoValue('focus_keyphrase', $existingFocusKeyphrase)
+        ) {
+            update_post_meta($postId, self::YOAST_FOCUS_KEY_META_KEY, $focusKeyphraseValidation['value']);
         }
+    }
+
+    /**
+     * Normalize SEO metadata values before validation or persistence checks.
+     *
+     * @param mixed $value Raw metadata value.
+     * @return string
+     */
+    public static function normalizeSeoValue($value) {
+        if (!is_string($value)) {
+            return '';
+        }
+
+        $value = wp_strip_all_tags($value);
+        $value = html_entity_decode($value, ENT_QUOTES, 'UTF-8');
+        $value = preg_replace('/\s+/u', ' ', $value);
+        if (!is_string($value)) {
+            $value = '';
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = self::trimWrappingQuotes($value);
+        $value = sanitize_text_field($value);
+
+        return trim($value);
+    }
+
+    /**
+     * Validate a candidate SEO title.
+     *
+     * @param mixed $value Candidate title value.
+     * @return array{valid:bool,value:string,reason:string}
+     */
+    public static function validateSeoTitleValue($value) {
+        $normalizedValue = self::normalizeSeoValue($value);
+
+        if ($normalizedValue === '') {
+            return self::buildValidationResult(false, '', 'SEO title is missing.');
+        }
+
+        if (self::containsWrapperCommentary($normalizedValue)) {
+            return self::buildValidationResult(false, '', 'SEO title contains wrapper text or labels.');
+        }
+
+        $length = self::getStringLength($normalizedValue);
+        if ($length < self::SEO_TITLE_MIN_LENGTH) {
+            return self::buildValidationResult(false, '', 'SEO title is too short.');
+        }
+
+        if ($length > self::SEO_TITLE_MAX_LENGTH) {
+            return self::buildValidationResult(false, '', 'SEO title exceeds 60 characters.');
+        }
+
+        if (self::isKnownBadSeoValue($normalizedValue)) {
+            return self::buildValidationResult(false, '', 'SEO title matches a known bad generated value.');
+        }
+
+        return self::buildValidationResult(true, $normalizedValue, '');
+    }
+
+    /**
+     * Validate a candidate SEO description.
+     *
+     * @param mixed $value Candidate description value.
+     * @return array{valid:bool,value:string,reason:string}
+     */
+    public static function validateSeoDescriptionValue($value) {
+        $normalizedValue = self::normalizeSeoValue($value);
+
+        if ($normalizedValue === '') {
+            return self::buildValidationResult(false, '', 'SEO description is missing.');
+        }
+
+        if (self::containsWrapperCommentary($normalizedValue)) {
+            return self::buildValidationResult(false, '', 'SEO description contains wrapper text or labels.');
+        }
+
+        $length = self::getStringLength($normalizedValue);
+        if ($length < self::SEO_DESCRIPTION_MIN_LENGTH) {
+            return self::buildValidationResult(false, '', 'SEO description is too short.');
+        }
+
+        if ($length > self::SEO_DESCRIPTION_MAX_LENGTH) {
+            return self::buildValidationResult(false, '', 'SEO description exceeds 155 characters.');
+        }
+
+        if (self::isKnownBadSeoValue($normalizedValue)) {
+            return self::buildValidationResult(false, '', 'SEO description matches a known bad generated value.');
+        }
+
+        return self::buildValidationResult(true, $normalizedValue, '');
+    }
+
+    /**
+     * Validate a candidate focus keyphrase.
+     *
+     * @param mixed $value Candidate focus keyphrase value.
+     * @return array{valid:bool,value:string,reason:string}
+     */
+    public static function validateFocusKeyphraseValue($value) {
+        $normalizedValue = self::normalizeSeoValue($value);
+
+        if ($normalizedValue === '') {
+            return self::buildValidationResult(false, '', '');
+        }
+
+        if (self::containsWrapperCommentary($normalizedValue)) {
+            return self::buildValidationResult(false, '', 'Focus keyphrase contains wrapper text or labels.');
+        }
+
+        if (self::getStringLength($normalizedValue) > self::FOCUS_KEYPHRASE_MAX_LENGTH) {
+            return self::buildValidationResult(false, '', 'Focus keyphrase exceeds 60 characters.');
+        }
+
+        if (!preg_match('/^[\pL\pN]+(?:[\'’-][\pL\pN]+)?(?: [\pL\pN]+(?:[\'’-][\pL\pN]+)?){1,5}$/u', $normalizedValue)) {
+            return self::buildValidationResult(false, '', 'Focus keyphrase must be a concise 2 to 6 word phrase.');
+        }
+
+        $wordCount = self::getWordCount($normalizedValue);
+        if (
+            $wordCount < self::FOCUS_KEYPHRASE_MIN_WORDS ||
+            $wordCount > self::FOCUS_KEYPHRASE_MAX_WORDS
+        ) {
+            return self::buildValidationResult(false, '', 'Focus keyphrase must contain 2 to 6 words.');
+        }
+
+        if (self::isKnownBadSeoValue($normalizedValue)) {
+            return self::buildValidationResult(false, '', 'Focus keyphrase matches a known bad generated value.');
+        }
+
+        return self::buildValidationResult(true, $normalizedValue, '');
+    }
+
+    /**
+     * Determine whether a value matches a known bad generated artifact.
+     *
+     * @param mixed $value Candidate metadata value.
+     * @return bool
+     */
+    public static function isKnownBadSeoValue($value) {
+        $normalizedValue = self::normalizeSeoValue($value);
+
+        if ($normalizedValue === '') {
+            return false;
+        }
+
+        $knownBadValues = array(
+            self::BAD_EXAMPLE_TITLE,
+            self::BAD_EXAMPLE_DESCRIPTION,
+            self::BAD_EXAMPLE_FOCUS_KEYPHRASE,
+        );
+
+        if (in_array($normalizedValue, $knownBadValues, true)) {
+            return true;
+        }
+
+        return self::containsWrapperCommentary($normalizedValue);
     }
 
     /**
@@ -181,25 +361,7 @@ class YoastSeoIntegration {
      * @return string Trimmed, sanitized string or an empty string when invalid.
      */
     private function sanitizeSeoField($value) {
-        if (!is_string($value)) {
-            return '';
-        }
-
-        $value = wp_strip_all_tags($value);
-        $value = html_entity_decode($value, ENT_QUOTES, 'UTF-8');
-        $value = preg_replace('/\s+/u', ' ', $value);
-        if (!is_string($value)) {
-            $value = '';
-        }
-
-        $value = trim($value);
-        if ($value === '') {
-            return '';
-        }
-
-        $value = sanitize_text_field($value);
-
-        return trim($value);
+        return self::normalizeSeoValue($value);
     }
 
     /**
@@ -212,24 +374,177 @@ class YoastSeoIntegration {
      * @return string Trimmed, sanitized string or an empty string when invalid.
      */
     private function sanitizeFocusKeyphrase($value) {
-        if (!is_string($value)) {
+        return self::normalizeSeoValue($value);
+    }
+
+    /**
+     * Determine whether an existing stored value can be replaced safely.
+     *
+     * @param string $field         Metadata field identifier.
+     * @param mixed  $existingValue Existing Yoast value.
+     * @return bool
+     */
+    private function canOverwriteExistingSeoValue($field, $existingValue) {
+        $normalizedValue = self::normalizeSeoValue($existingValue);
+
+        if ($normalizedValue === '') {
+            return true;
+        }
+
+        if (self::isKnownBadSeoValue($normalizedValue)) {
+            return true;
+        }
+
+        if ($field === 'title') {
+            return !$this->isValidExistingSeoTitle($normalizedValue);
+        }
+
+        if ($field === 'description') {
+            return !$this->isValidExistingSeoDescription($normalizedValue);
+        }
+
+        if ($field === 'focus_keyphrase') {
+            return !$this->isValidExistingFocusKeyphrase($normalizedValue);
+        }
+
+        return false;
+    }
+
+    /**
+     * Determine whether the existing title is valid.
+     *
+     * @param mixed $value Existing Yoast title.
+     * @return bool
+     */
+    private function isValidExistingSeoTitle($value) {
+        $validation = self::validateSeoTitleValue($value);
+
+        return !empty($validation['valid']);
+    }
+
+    /**
+     * Determine whether the existing description is valid.
+     *
+     * @param mixed $value Existing Yoast description.
+     * @return bool
+     */
+    private function isValidExistingSeoDescription($value) {
+        $validation = self::validateSeoDescriptionValue($value);
+
+        return !empty($validation['valid']);
+    }
+
+    /**
+     * Determine whether the existing focus keyphrase is valid.
+     *
+     * @param mixed $value Existing Yoast focus keyphrase.
+     * @return bool
+     */
+    private function isValidExistingFocusKeyphrase($value) {
+        $validation = self::validateFocusKeyphraseValue($value);
+
+        return !empty($validation['valid']);
+    }
+
+    /**
+     * Build a structured validation result payload.
+     *
+     * @param bool   $isValid Validation result flag.
+     * @param string $value   Normalized candidate value.
+     * @param string $reason  Rejection reason.
+     * @return array{valid:bool,value:string,reason:string}
+     */
+    private static function buildValidationResult($isValid, $value, $reason) {
+        return array(
+            'valid' => (bool) $isValid,
+            'value' => (is_string($value) ? $value : ''),
+            'reason' => (is_string($reason) ? $reason : ''),
+        );
+    }
+
+    /**
+     * Detect obvious wrapper text or label artifacts in SEO metadata.
+     *
+     * @param string $value Candidate metadata value.
+     * @return bool
+     */
+    private static function containsWrapperCommentary($value) {
+        if (!is_string($value) || $value === '') {
+            return false;
+        }
+
+        if (preg_match('/===SEO_META_/i', $value)) {
+            return true;
+        }
+
+        return (bool) preg_match(
+            '/^\s*(seo[_ ]?title|seo[_ ]?description|meta description|focus keyphrase|focus[_ ]?keyphrase|suggested slug|example|output format|title|description|keyphrase)\s*:/i',
+            $value
+        );
+    }
+
+    /**
+     * Remove matching wrapping quotes from a metadata value when safe.
+     *
+     * @param string $value Candidate metadata value.
+     * @return string
+     */
+    private static function trimWrappingQuotes($value) {
+        if (!is_string($value) || $value === '') {
             return '';
         }
 
-        $value = wp_strip_all_tags($value);
-        $value = html_entity_decode($value, ENT_QUOTES, 'UTF-8');
-        $value = preg_replace('/\s+/u', ' ', $value);
-        if (!is_string($value)) {
-            $value = '';
-        }
+        $pairs = array(
+            array('"', '"'),
+            array("'", "'"),
+            array('“', '”'),
+            array('‘', '’'),
+        );
 
-        $value = trim($value);
-        if ($value === '') {
-            return '';
-        }
+        foreach ($pairs as $pair) {
+            $start = $pair[0];
+            $end = $pair[1];
 
-        $value = sanitize_text_field($value);
+            if (strpos($value, $start) === 0 && substr($value, -strlen($end)) === $end) {
+                $value = substr($value, strlen($start), -strlen($end));
+                break;
+            }
+        }
 
         return trim($value);
+    }
+
+    /**
+     * Count the words in a normalized SEO string.
+     *
+     * @param string $value Candidate metadata value.
+     * @return int
+     */
+    private static function getWordCount($value) {
+        if (!is_string($value) || trim($value) === '') {
+            return 0;
+        }
+
+        $words = preg_split('/\s+/u', trim($value));
+
+        return is_array($words) ? count($words) : 0;
+    }
+
+    /**
+     * Measure string length using multibyte support when available.
+     *
+     * @param string $value Candidate metadata value.
+     * @return int
+     */
+    private static function getStringLength($value) {
+        if (!is_string($value)) {
+            return 0;
+        }
+
+        if (function_exists('mb_strlen')) {
+            return (int) mb_strlen($value, 'UTF-8');
+        }
+
+        return (int) strlen($value);
     }
 }
