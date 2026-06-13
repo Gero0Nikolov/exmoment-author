@@ -5,7 +5,7 @@ Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, 
 Requires at least: 6.0
 Requires PHP: 8.3
 Tested up to: 7.0
-Stable tag: 1.0.2
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,18 @@ OpenAI Privacy Policy: <a href="https://openai.com/policies/privacy-policy">http
 4. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.1.0 =
+Minor release adding GPT Image model support and local runtime compatibility improvements.
+
+- Updated OpenAI image generation to support GPT Image models.
+- Added an allowlisted image model setting/dropdown with `gpt-image-2` as the default.
+- Added support for GPT Image base64 responses and legacy URL responses.
+- Removed unsupported `response_format` from current image model requests.
+- Kept `dall-e-3` as a legacy fallback path.
+- Updated Composer dependencies, including `openai-php/client` to `v0.19.2`.
+- Improved local Docker and WP-CLI compatibility.
+- Updated WordPress and PHP compatibility metadata.
+
 = 1.0.2 =
 Maintenance release updated screenshots, runtime compatibility metadata, Docker WP-CLI support, and GPT Image model defaults.
 
