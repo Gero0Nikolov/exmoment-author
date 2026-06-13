@@ -3,7 +3,8 @@ Contributors: exmoment
 Donate link: https://author.exmoment.com
 Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, seo-content
 Requires at least: 6.0
-Tested up to: 6.9
+Requires PHP: 8.3
+Tested up to: 7.0
 Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -53,7 +54,7 @@ OpenAI Privacy Policy: <a href="https://openai.com/policies/privacy-policy">http
 
 == Changelog ==
 = 1.0.2 =
-Maintenance release updated screenshots and readme.
+Maintenance release updated screenshots, runtime compatibility metadata, Docker WP-CLI support, and GPT Image model defaults.
 
 = 1.0.1 =
 Maintenance release with the library welcome popup fix for the Library admin page.

@@ -8,7 +8,7 @@ use Psr\Http\Message\RequestInterface;
 use RuntimeException;
 use UnexpectedValueException;
 
-class WebhookSignatureVerifier
+readonly class WebhookSignatureVerifier
 {
     private string $secret;
 

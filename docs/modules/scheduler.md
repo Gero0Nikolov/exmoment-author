@@ -10,6 +10,10 @@ Scheduler behavior is implemented by `modules/jobs/JobsSchedulerWorker.php` and 
 - Ensure recurring event remains scheduled.
 - Select due jobs and dispatch execution flows.
 - Track throttles/locks and emit structured scheduler logs.
+- Skip bootstrap cron-spawn attempts during WP-CLI execution to avoid redirect
+  warnings and keep command-line verification deterministic.
+- Leave the local Docker alternate-cron shim to browser requests so WP-CLI
+  commands do not inherit redirect-based cron spawning.
 
 ## Key Hook
 

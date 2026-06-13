@@ -60,6 +60,16 @@ Because this repo is bind-mounted, code edits in this repo are reflected immedia
 
 Use the long-running `wp_cli` container:
 
+The checked-in `docker-compose.yml` now passes the same database environment
+variables to `wp_cli` that `wp-config.php` expects, so `wp` commands can run
+without extra `--path` or DB overrides.
+
+For image-generation verification, prefer a browser request or a PHP process
+running as the WordPress web user when you need to test media writes. In this
+local stack, the `wpcli` container user can differ from the web container user,
+which can prevent direct writes into uploads even when the application runtime
+itself is healthy.
+
 ```bash
 docker exec -it wp_cli wp plugin list --allow-root
 ```

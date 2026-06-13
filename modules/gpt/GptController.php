@@ -1505,10 +1505,12 @@ class GptController {
      * Generate and attach an AI-created featured image for a post.
      *
      * The method builds a concise prompt from the first ~30 words of the post content, requests a
-     * single DALL·E image using the configured OpenAI client, stores it under the uploads directory
-     * as WebP when supported, and assigns the resulting attachment as the post thumbnail. Execution
-     * is skipped when the post already has a featured image, the feature is disabled, or the prompt
-     * cannot be derived. Errors are logged in debug mode without interrupting callers.
+     * single GPT Image generation using the configured OpenAI client, stores it under the uploads
+     * directory as WebP when supported, and assigns the resulting attachment as the post thumbnail.
+     * When a selected GPT image model is unavailable, the request can retry once with the legacy
+     * `dall-e-3` fallback. Execution is skipped when the post already has a featured image, the
+     * feature is disabled, or the prompt cannot be derived. Errors are logged in debug mode without
+     * interrupting callers.
      *
      * @param int   $postId  Target post identifier.
      * @param array $options Optional future extension options; currently unused.
@@ -1584,6 +1586,7 @@ class GptController {
         }
 
         $model = apply_filters('exmoau_ai_image_model', $imageSettings['model'], $postId);
+        $model = SettingsController::normalizeAiImageModelSelection($model, $imageSettings['model']);
         $size = apply_filters(
             'exmoau_ai_image_size',
             $imageSettings['dimensions'],
@@ -1599,45 +1602,97 @@ class GptController {
             $size = SettingsController::getDefaultAiImageDimensions();
         }
 
-        try {
-            $response = $this->client->images()->create([
-                'model' => $model,
-                'prompt' => $prompt,
-                'n' => 1,
-                'size' => $size,
-                'response_format' => 'b64_json',
-            ]);
-        } catch (ErrorException $exception) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
-                if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.image', sprintf('AI image request failed for post %d: %s', $postId, $exception->getMessage()), [], $postId);
-                }
-            }
+        $this->logImageGenerationDebug(
+            $postId,
+            'Preparing AI image generation request.',
+            array(
+                'selected_model' => $model,
+                'prompt_length' => strlen($prompt),
+                'requested_size' => $size,
+                'debug_mode' => false,
+            )
+        );
 
-            return [
-                'success' => false,
-                'error' => 'api_error',
-            ];
-        } catch (TransporterException $exception) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
-                if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.image', sprintf('AI image transport error for post %d: %s', $postId, $exception->getMessage()), [], $postId);
+        $requestArgs = $this->buildImageGenerationRequestArgs($model, $prompt, $size);
+
+        try {
+            $this->logImageGenerationDebug(
+                $postId,
+                'Attempting OpenAI image generation request.',
+                array(
+                    'selected_model' => $model,
+                    'requested_size' => $size,
+                    'request_attempted' => true,
+                )
+            );
+
+            $response = $this->client->images()->create($requestArgs);
+        } catch (ErrorException $exception) {
+            $this->logImageGenerationDebug(
+                $postId,
+                'OpenAI image generation request failed.',
+                $this->buildImageGenerationErrorContext($exception, $model, false)
+            );
+
+            if ($this->shouldRetryLegacyImageModel($exception, $model)) {
+                $requestArgs = $this->buildImageGenerationRequestArgs('dall-e-3', $prompt, $size);
+
+                $this->logImageGenerationDebug(
+                    $postId,
+                    'Retrying OpenAI image generation with legacy fallback model.',
+                    array(
+                        'selected_model' => $model,
+                        'fallback_model' => 'dall-e-3',
+                        'requested_size' => $size,
+                        'request_attempted' => true,
+                    )
+                );
+
+                try {
+                    $response = $this->client->images()->create($requestArgs);
+                } catch (ErrorException $retryException) {
+                    $this->logImageGenerationDebug(
+                        $postId,
+                        'Legacy fallback image generation request failed.',
+                        $this->buildImageGenerationErrorContext($retryException, 'dall-e-3', true)
+                    );
+
+                    return array(
+                        'success' => false,
+                        'error' => 'api_error',
+                    );
                 }
+            } else {
+                return array(
+                    'success' => false,
+                    'error' => 'api_error',
+                );
             }
+        } catch (TransporterException $exception) {
+            $this->logImageGenerationDebug(
+                $postId,
+                'OpenAI image transport error encountered.',
+                array(
+                    'selected_model' => $model,
+                    'requested_size' => $size,
+                    'error_message' => $this->sanitizeImageGenerationLogValue($exception->getMessage()),
+                )
+            );
 
             return [
                 'success' => false,
                 'error' => 'transport_error',
             ];
         } catch (\Throwable $exception) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
-                if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.image', sprintf('AI image runtime failure for post %d: %s', $postId, $exception->getMessage()), [], $postId);
-                }
-            }
+            $this->logImageGenerationDebug(
+                $postId,
+                'Unexpected image generation runtime error encountered.',
+                array(
+                    'selected_model' => $model,
+                    'requested_size' => $size,
+                    'error_message' => $this->sanitizeImageGenerationLogValue($exception->getMessage()),
+                )
+            );
 
             return [
                 'success' => false,
@@ -1645,57 +1700,72 @@ class GptController {
             ];
         }
 
-        if (!is_object($response) || !isset($response->data) || !is_array($response->data) || empty($response->data[0])) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
-                if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.image', sprintf('AI image response missing data for post %d.', $postId), [], $postId);
-                }
-            }
+        $normalizedPayload = $this->normalizeGeneratedImagePayload($response);
 
+        $this->logImageGenerationDebug(
+            $postId,
+            'Received OpenAI image generation response.',
+            array(
+                'selected_model' => $model,
+                'response_contains_data' => $normalizedPayload['has_data'],
+                'response_item_count' => $normalizedPayload['item_count'],
+                'first_item_has_url' => $normalizedPayload['has_url'],
+                'first_item_has_b64' => $normalizedPayload['has_b64'],
+            )
+        );
+
+        if (!$normalizedPayload['has_data'] || $normalizedPayload['type'] === '') {
             return [
                 'success' => false,
                 'error' => 'invalid_response',
             ];
         }
 
-        $first = $response->data[0];
-        $b64 = '';
-        if (is_object($first) && isset($first->b64_json) && is_string($first->b64_json)) {
-            $b64 = trim($first->b64_json);
-        }
+        $this->logImageGenerationDebug(
+            $postId,
+            'Attempting to persist generated image to WordPress media.',
+            array(
+                'selected_model' => $model,
+                'media_save_attempted' => true,
+                'payload_type' => $normalizedPayload['type'],
+            )
+        );
 
-        if ($b64 === '') {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
-                if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.image', sprintf('AI image payload empty for post %d.', $postId), [], $postId);
-                }
+        $attachmentId = false;
+
+        if ($normalizedPayload['type'] === 'b64') {
+            $binary = base64_decode($normalizedPayload['value'], true);
+            if (!is_string($binary) || $binary === '') {
+                $this->logImageGenerationDebug(
+                    $postId,
+                    'Generated image base64 payload could not be decoded.',
+                    array(
+                        'selected_model' => $model,
+                        'payload_type' => 'b64',
+                    )
+                );
+
+                return array(
+                    'success' => false,
+                    'error' => 'decode_failure',
+                );
             }
 
-            return [
-                'success' => false,
-                'error' => 'empty_payload',
-            ];
+            $attachmentId = $this->saveFeaturedImageFromBinary($postId, $binary, $post->post_title);
+        } elseif ($normalizedPayload['type'] === 'url') {
+            $attachmentId = $this->saveFeaturedImageFromUrl($postId, $normalizedPayload['value'], $post->post_title);
         }
 
-        $binary = base64_decode($b64, true);
-        if (!is_string($binary) || $binary === '') {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
-                if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.image', sprintf('AI image payload could not be decoded for post %d.', $postId), [], $postId);
-                }
-            }
-
-            return [
-                'success' => false,
-                'error' => 'decode_failure',
-            ];
-        }
-
-        $attachmentId = $this->saveFeaturedImageFromBinary($postId, $binary, $post->post_title);
         if (!$attachmentId) {
+            $this->logImageGenerationDebug(
+                $postId,
+                'Generated image could not be saved as a media attachment.',
+                array(
+                    'selected_model' => $model,
+                    'payload_type' => $normalizedPayload['type'],
+                )
+            );
+
             return [
                 'success' => false,
                 'error' => 'attachment_failure',
@@ -1704,10 +1774,250 @@ class GptController {
 
         update_post_meta($postId, self::META_AI_FEATURED_IMAGE, 1);
 
+        $this->logImageGenerationDebug(
+            $postId,
+            'Generated image was saved and attached successfully.',
+            array(
+                'selected_model' => $model,
+                'attachment_id' => (int) $attachmentId,
+            )
+        );
+
         return [
             'success' => true,
             'attachment_id' => (int) $attachmentId,
         ];
+    }
+
+    /**
+     * Build the request payload for OpenAI image generation.
+     *
+     * GPT Image models in the current API return base64 payloads without
+     * requiring `response_format`, and sending that parameter now raises an
+     * `unknown_parameter` error. Keep the payload minimal and model-agnostic.
+     *
+     * @param string $model  Selected image model identifier.
+     * @param string $prompt Sanitized prompt text.
+     * @param string $size   Allowed image dimensions preset.
+     * @return array<string, mixed>
+     */
+    private function buildImageGenerationRequestArgs($model, $prompt, $size) {
+        return array(
+            'model' => (string) $model,
+            'prompt' => (string) $prompt,
+            'n' => 1,
+            'size' => (string) $size,
+        );
+    }
+
+    /**
+     * Normalize the first usable generated image item from the OpenAI response.
+     *
+     * Supports both base64-style and URL-style payloads so the storage layer
+     * can handle GPT Image and legacy image responses centrally.
+     *
+     * @param mixed $response Image generation response object.
+     * @return array{has_data: bool, item_count: int, has_url: bool, has_b64: bool, type: string, value: string}
+     */
+    private function normalizeGeneratedImagePayload($response) {
+        $normalized = array(
+            'has_data' => false,
+            'item_count' => 0,
+            'has_url' => false,
+            'has_b64' => false,
+            'type' => '',
+            'value' => '',
+        );
+
+        if (!is_object($response) || !isset($response->data) || !is_array($response->data)) {
+            return $normalized;
+        }
+
+        $normalized['item_count'] = count($response->data);
+
+        if (empty($response->data[0]) || !is_object($response->data[0])) {
+            return $normalized;
+        }
+
+        $first = $response->data[0];
+        $normalized['has_data'] = true;
+
+        if (isset($first->url) && is_string($first->url)) {
+            $url = trim($first->url);
+
+            if ($url !== '') {
+                $normalized['has_url'] = true;
+                $normalized['type'] = 'url';
+                $normalized['value'] = $url;
+            }
+        }
+
+        if (isset($first->b64_json) && is_string($first->b64_json)) {
+            $b64 = trim($first->b64_json);
+
+            if ($b64 !== '') {
+                $normalized['has_b64'] = true;
+
+                if ($normalized['type'] === '') {
+                    $normalized['type'] = 'b64';
+                    $normalized['value'] = $b64;
+                }
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Build a sanitized logging context for OpenAI image request failures.
+     *
+     * @param ErrorException $exception     API exception raised by the OpenAI client.
+     * @param string         $model         Model used for the failed request.
+     * @param bool           $usedFallback  Whether this context belongs to the legacy fallback attempt.
+     * @return array<string, mixed>
+     */
+    private function buildImageGenerationErrorContext(ErrorException $exception, $model, $usedFallback) {
+        return array(
+            'selected_model' => (string) $model,
+            'used_legacy_fallback' => ($usedFallback === true),
+            'error_code' => $this->sanitizeImageGenerationLogValue($exception->getErrorCode()),
+            'error_type' => $this->sanitizeImageGenerationLogValue($exception->getErrorType()),
+            'error_message' => $this->sanitizeImageGenerationLogValue($exception->getErrorMessage()),
+        );
+    }
+
+    /**
+     * Persist a generated image from a remote URL as a WordPress attachment.
+     *
+     * @param int    $postId    Target post identifier.
+     * @param string $url       Remote image URL returned by the API.
+     * @param string $postTitle Post title used for attachment naming.
+     * @return int|false
+     */
+    private function saveFeaturedImageFromUrl($postId, $url, $postTitle) {
+        $postId = absint($postId);
+        $url = (is_string($url) ? esc_url_raw(trim($url)) : '');
+
+        if ($postId < 1 || $url === '') {
+            return false;
+        }
+
+        if (!function_exists('download_url')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+        }
+
+        $temporaryFile = download_url($url, 30);
+        if (is_wp_error($temporaryFile) || !is_string($temporaryFile) || $temporaryFile === '') {
+            return false;
+        }
+
+        $binary = file_get_contents($temporaryFile);
+
+        if (file_exists($temporaryFile)) {
+            wp_delete_file($temporaryFile);
+        }
+
+        if (!is_string($binary) || $binary === '') {
+            return false;
+        }
+
+        return $this->saveFeaturedImageFromBinary($postId, $binary, $postTitle);
+    }
+
+    /**
+     * Record sanitized image-generation diagnostics through the existing log service.
+     *
+     * @param int                 $postId  Related post identifier.
+     * @param string              $message Summary log message.
+     * @param array<string, mixed> $context Safe metadata context.
+     * @return void
+     */
+    private function logImageGenerationDebug($postId, $message, array $context = array()) {
+        if (!defined('WP_DEBUG') || !WP_DEBUG) {
+            return;
+        }
+
+        $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
+        if (!($logger instanceof \ExMomentAuthor\Modules\Log\LogService)) {
+            return;
+        }
+
+        $normalizedContext = array();
+
+        foreach ($context as $key => $value) {
+            $normalizedKey = sanitize_key((string) $key);
+
+            if ($normalizedKey === '') {
+                continue;
+            }
+
+            $normalizedContext[$normalizedKey] = $this->sanitizeImageGenerationLogValue($value);
+        }
+
+        $logger->debug('gpt.image', sanitize_text_field((string) $message), $normalizedContext, $postId);
+    }
+
+    /**
+     * Normalize image-generation diagnostic values before logging.
+     *
+     * @param mixed $value Raw context value.
+     * @return bool|int|float|string|null
+     */
+    private function sanitizeImageGenerationLogValue($value) {
+        if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
+            return $value;
+        }
+
+        if (is_scalar($value)) {
+            $value = sanitize_text_field((string) $value);
+
+            if (strlen($value) > 300) {
+                $value = substr($value, 0, 300);
+            }
+
+            return $value;
+        }
+
+        return sanitize_text_field(wp_json_encode($value));
+    }
+
+    /**
+     * Determine whether a model-specific image generation error should retry with the legacy fallback.
+     *
+     * @param ErrorException $exception OpenAI API exception thrown by the image request.
+     * @param string         $model     Model attempted for the original request.
+     * @return bool
+     */
+    private function shouldRetryLegacyImageModel(ErrorException $exception, $model) {
+        if (!is_string($model) || $model === 'dall-e-3') {
+            return false;
+        }
+
+        $errorCode = strtolower((string) $exception->getErrorCode());
+        $errorType = strtolower((string) $exception->getErrorType());
+        $message = strtolower((string) $exception->getErrorMessage());
+
+        $retrySignals = array(
+            'model_not_found',
+            'unsupported_model',
+            'invalid_model',
+        );
+
+        foreach ($retrySignals as $signal) {
+            if ($signal === $errorCode || $signal === $errorType || false !== strpos($message, $signal)) {
+                return true;
+            }
+        }
+
+        return (
+            false !== strpos($message, 'model')
+            && (
+                false !== strpos($message, 'not found')
+                || false !== strpos($message, 'unsupported')
+                || false !== strpos($message, 'not available')
+                || false !== strpos($message, 'does not exist')
+            )
+        );
     }
 
     /**

@@ -2,7 +2,7 @@
 
 namespace OpenAI\Responses\Meta;
 
-final class MetaInformationCustom
+final readonly class MetaInformationCustom
 {
     /**
      * @param  array<string, string>  $headers

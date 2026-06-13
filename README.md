@@ -27,6 +27,8 @@ Project documentation is organized under [`docs/index.md`](docs/index.md).
 ## Development Notes
 
 - Runtime modules are autoloaded from `Core.php` configuration.
+- Local Docker development targets WordPress `7.0`, PHP `8.4`, and MariaDB `10.6`.
+- The `wpcli` service now mirrors the WordPress DB environment so `wp` commands work against `wp-config.php` without manual overrides.
 - Keep docs updated whenever module behavior, hooks, or operational procedures change.
 
 ## Related Entrypoint

@@ -71,7 +71,7 @@ class SettingsController {
     /**
      * Default AI image model identifier when no value has been stored.
      */
-    private const DEFAULT_AI_IMAGE_MODEL = 'dall-e-3';
+    private const DEFAULT_AI_IMAGE_MODEL = 'gpt-image-2';
 
     /**
      * Default state for AI image generation toggle.
@@ -215,11 +215,33 @@ class SettingsController {
      *
      * @var string[]
      */
-    private const AI_IMAGE_MODELS = [
-        'dall-e-3',
-        'gpt-image-1-mini',
-        'gpt-image-1',
-    ];
+    private const AI_IMAGE_MODEL_REGISTRY = array(
+        'gpt-image-2'      => array(
+            'label'       => 'GPT Image 2 - Best quality',
+            'description' => 'Default GPT Image model for featured image generation.',
+            'legacy'      => false,
+        ),
+        'gpt-image-1.5'    => array(
+            'label'       => 'GPT Image 1.5 - High quality',
+            'description' => 'High-quality GPT Image variant kept for compatibility.',
+            'legacy'      => false,
+        ),
+        'gpt-image-1'      => array(
+            'label'       => 'GPT Image 1 - Legacy GPT Image',
+            'description' => 'Earlier GPT Image generation model.',
+            'legacy'      => false,
+        ),
+        'gpt-image-1-mini' => array(
+            'label'       => 'GPT Image 1 Mini - Low-cost/dev',
+            'description' => 'Lower-cost GPT Image variant for development and low-volume usage.',
+            'legacy'      => false,
+        ),
+        'dall-e-3'         => array(
+            'label'       => 'DALL·E 3 - Legacy fallback',
+            'description' => 'Legacy fallback image model retained for compatibility.',
+            'legacy'      => true,
+        ),
+    );
 
     /**
      * Instantiate the controller and autoload Settings sub-controllers.
@@ -751,19 +773,10 @@ class SettingsController {
      * @return string
      */
     public static function getAiImageModel() {
-        $model = self::getOption('ai_image_model', self::DEFAULT_AI_IMAGE_MODEL);
-
-        if (!is_string($model)) {
-            return self::DEFAULT_AI_IMAGE_MODEL;
-        }
-
-        $model = strtolower(trim($model));
-
-        if (!in_array($model, self::AI_IMAGE_MODELS, true)) {
-            return self::DEFAULT_AI_IMAGE_MODEL;
-        }
-
-        return $model;
+        return self::normalizeAiImageModelSelection(
+            self::getOption('ai_image_model', self::DEFAULT_AI_IMAGE_MODEL),
+            self::DEFAULT_AI_IMAGE_MODEL
+        );
     }
 
     /**
@@ -896,6 +909,52 @@ class SettingsController {
      */
     public static function getDefaultAiImageModel() {
         return self::DEFAULT_AI_IMAGE_MODEL;
+    }
+
+    /**
+     * Retrieve the allowlisted AI image model registry.
+     *
+     * @return array<string, array{label: string, description: string, legacy: bool}>
+     */
+    public static function getAiImageModelRegistry() {
+        return self::AI_IMAGE_MODEL_REGISTRY;
+    }
+
+    /**
+     * Retrieve allowlisted AI image model identifiers.
+     *
+     * @return string[]
+     */
+    public static function getAllowedAiImageModels() {
+        return array_keys(self::AI_IMAGE_MODEL_REGISTRY);
+    }
+
+    /**
+     * Normalize an AI image model selection against the allowlist.
+     *
+     * @param mixed  $value    Raw model value to normalize.
+     * @param string $fallback Allowlisted fallback model identifier.
+     * @return string
+     */
+    public static function normalizeAiImageModelSelection($value, $fallback = self::DEFAULT_AI_IMAGE_MODEL) {
+        $allowedModels = self::getAllowedAiImageModels();
+        $fallback = (is_string($fallback) ? strtolower(trim($fallback)) : self::DEFAULT_AI_IMAGE_MODEL);
+
+        if (!in_array($fallback, $allowedModels, true)) {
+            $fallback = self::DEFAULT_AI_IMAGE_MODEL;
+        }
+
+        if (is_array($value)) {
+            $value = reset($value);
+        }
+
+        $value = (is_string($value) ? strtolower(trim($value)) : '');
+
+        if (!in_array($value, $allowedModels, true)) {
+            return $fallback;
+        }
+
+        return $value;
     }
 
     /**
@@ -1392,17 +1451,7 @@ class SettingsController {
             return self::getOption('ai_image_model', self::DEFAULT_AI_IMAGE_MODEL);
         }
 
-        if (is_array($value)) {
-            $value = reset($value);
-        }
-
-        $value = (is_string($value) ? strtolower(trim($value)) : '');
-
-        if (!in_array($value, self::AI_IMAGE_MODELS, true)) {
-            $value = self::DEFAULT_AI_IMAGE_MODEL;
-        }
-
-        return $value;
+        return self::normalizeAiImageModelSelection($value, self::DEFAULT_AI_IMAGE_MODEL);
     }
 
     /**

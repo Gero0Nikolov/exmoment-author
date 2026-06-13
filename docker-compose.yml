@@ -50,10 +50,16 @@ services:
                 condition: service_healthy
             wordpress:
                 condition: service_started
+        environment:
+            WORDPRESS_DB_HOST: db:3306
+            WORDPRESS_DB_USER: ${DB_USER:-wordpress}
+            WORDPRESS_DB_PASSWORD: ${DB_PASSWORD:-wordpress}
+            WORDPRESS_DB_NAME: ${DB_NAME:-wordpress}
         entrypoint:
             - bash
             - -lc
-        command: sleep infinity
+        command:
+            - sleep 365d
         volumes:
             - wp_data:/var/www/html
             - ./:/var/www/html/wp-content/plugins/${PLUGIN_SLUG:-exmoment-author}:delegated

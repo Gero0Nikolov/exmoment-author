@@ -125,12 +125,18 @@ $imageGenerationLabel = esc_html__('Enable AI image generation', 'exmoment-autho
 $imageModelFieldName = SettingsController::getOptionFieldName('ai_image_model');
 $imageModelId = 'exmoau_ai_image_model';
 $imageModelLabel = esc_html__('Image model', 'exmoment-author');
-$imageModelDescription = esc_html__('Choose the OpenAI image model. DALL·E 3 is deprecated but remains available.', 'exmoment-author');
-$imageModelOptions = [
-    'dall-e-3' => esc_html__('DALL·E 3 (Deprecated)', 'exmoment-author'),
-    'gpt-image-1-mini' => esc_html__('gpt-image-1-mini', 'exmoment-author'),
-    'gpt-image-1' => esc_html__('GPT Image 1', 'exmoment-author'),
-];
+$imageModelDescription = esc_html__('Choose the OpenAI image model used for featured-image generation. DALL·E 3 remains available as a legacy compatibility option when supported by the current API/runtime.', 'exmoment-author');
+$imageModelOptions = array();
+
+foreach (SettingsController::getAiImageModelRegistry() as $modelId => $modelConfig) {
+    $labelText = isset($modelConfig['label']) ? (string) $modelConfig['label'] : (string) $modelId;
+
+    if (!empty($modelConfig['legacy'])) {
+        $labelText .= ' ' . esc_html__('(Legacy fallback)', 'exmoment-author');
+    }
+
+    $imageModelOptions[$modelId] = $labelText;
+}
 
 $stylePrompt = SettingsController::getAiImageStylePrompt();
 $stylePromptFieldName = SettingsController::getOptionFieldName('ai_image_style_prompt');
@@ -172,7 +178,7 @@ echo '    <th scope="row">';
 echo '        <label for="' . esc_attr($imageModelId) . '">' . esc_html($imageModelLabel) . '</label>';
 echo '    </th>';
 echo '    <td>';
-echo '        <select disabled name="' . esc_attr($imageModelFieldName) . '" id="' . esc_attr($imageModelId) . '">';
+echo '        <select name="' . esc_attr($imageModelFieldName) . '" id="' . esc_attr($imageModelId) . '">';
 foreach ($imageModelOptions as $value => $labelText) {
     $selected = selected($imageModel, $value, false);
     echo '            <option value="' . esc_attr($value) . '" ' . esc_html($selected) . '>' . esc_html($labelText) . '</option>';

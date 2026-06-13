@@ -1297,7 +1297,7 @@ class ExMomentAuthorCoreSystem {
      * @return void
      */
     private static function maybeEnableAlternateWpCron() {
-        if (!self::isLocalDockerCronFixEnabled()) {
+        if (!self::isLocalDockerCronFixEnabled() || (defined('WP_CLI') && WP_CLI)) {
             return;
         }
 
@@ -1314,7 +1314,7 @@ class ExMomentAuthorCoreSystem {
      * @return mixed
      */
     public static function filterCronRequestForLocalDocker($cronRequest, $doingWpCron) {
-        if (!self::isLocalDockerCronFixEnabled()) {
+        if (!self::isLocalDockerCronFixEnabled() || (defined('WP_CLI') && WP_CLI)) {
             return $cronRequest;
         }
 

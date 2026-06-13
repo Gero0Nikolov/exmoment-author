@@ -11,6 +11,11 @@
 - Keeps minutely scheduler event present.
 - Loads admin/login assets.
 - Exposes controller lookup through `getModule()`.
+- Supports local Docker verification through the companion `wpcli` service,
+  which now shares the same DB runtime environment as the WordPress app
+  container.
+- Restricts the local Docker alternate-cron shim to non-WP-CLI requests so
+  command-line bootstrap stays free of redirect-based cron warnings.
 
 ## Lifecycle
 

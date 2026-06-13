@@ -9,11 +9,5 @@
         "allow-plugins": {
             "php-http/discovery": true
         }
-    },
-    "repositories": [
-        {
-            "type": "vcs",
-            "url": "https://github.com/openai-php/client"
-        }
-    ]
+    }
 }
