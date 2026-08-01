@@ -5,7 +5,7 @@ Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, 
 Requires at least: 6.0
 Requires PHP: 8.3
 Tested up to: 7.0
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,9 @@ OpenAI Privacy Policy: <a href="https://openai.com/policies/privacy-policy">http
 4. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.2.0 =
+Added .MD into the supported stack.
+
 = 1.1.0 =
 Minor release adding GPT Image model support and local runtime compatibility improvements.
 
