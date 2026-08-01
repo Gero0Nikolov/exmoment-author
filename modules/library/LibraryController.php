@@ -331,7 +331,7 @@ class LibraryController {
         if (!$this->isAllowedLibraryFilename($filename)) {
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_disallowed_extension',
-                esc_html__('Only .txt files can be previewed in the library.', 'exmoment-author')
+                esc_html__('Only .txt and .md files can be previewed in the library.', 'exmoment-author')
             ));
         }
 
@@ -362,6 +362,10 @@ class LibraryController {
 
         $type = wp_check_filetype_and_ext($filePath, basename($filePath));
         $mime = ($type['type'] ?? '');
+
+        if (empty($mime) && 'md' === $this->getLibraryFileExtension($filename)) {
+            $mime = 'text/markdown';
+        }
 
         if (!$this->isPreviewableMime($mime)) {
             $this->sendAjaxError(new WP_Error(
@@ -472,7 +476,7 @@ class LibraryController {
         if ('file' === $type && (!$this->isAllowedLibraryFilename($currentName) || !$this->isAllowedLibraryFilename($newName))) {
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_disallowed_extension',
-                esc_html__('Only .txt files can be renamed in the library.', 'exmoment-author')
+                esc_html__('Only .txt and .md files can be renamed in the library.', 'exmoment-author')
             ));
         }
 
@@ -610,7 +614,7 @@ class LibraryController {
         if ('file' === $type && !$this->isAllowedLibraryFilename($name)) {
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_disallowed_extension',
-                esc_html__('Only .txt files can be deleted from the library.', 'exmoment-author')
+                esc_html__('Only .txt and .md files can be deleted from the library.', 'exmoment-author')
             ));
         }
 
@@ -701,7 +705,7 @@ class LibraryController {
         if (!isset($_FILES[self::UPLOAD_FIELD]) || !is_array($_FILES[self::UPLOAD_FIELD])) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidated
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_upload_missing',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                esc_html__('Upload rejected: no archive was received.', 'exmoment-author')
             ));
         }
 
@@ -716,7 +720,7 @@ class LibraryController {
         ) {
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_upload_invalid',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                esc_html__('Upload rejected: the uploaded archive data is invalid.', 'exmoment-author')
             ));
         }
 
@@ -725,7 +729,7 @@ class LibraryController {
         if (!is_array($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_upload_invalid',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                esc_html__('Upload rejected: the uploaded archive could not be verified.', 'exmoment-author')
             ));
         }
 
@@ -742,7 +746,7 @@ class LibraryController {
         if ($size <= 0) {
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_upload_empty',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                esc_html__('Upload rejected: the archive is empty.', 'exmoment-author')
             ));
         }
 
@@ -813,7 +817,7 @@ class LibraryController {
             ));
         }
 
-        $structure = $this->inspectArchiveStructure($archive);
+        $structure = $this->inspectArchiveStructure($archive, $originalName);
         $archive->close();
 
         if (is_wp_error($structure)) {
@@ -868,7 +872,11 @@ class LibraryController {
         }
 
         $originalDirectory = rtrim($structure['original'], '/');
-        $extractedPath = rtrim($temporaryDirectory, '/\\') . '/' . $originalDirectory;
+        $extractedPath = rtrim($temporaryDirectory, '/\\');
+
+        if ('' !== $originalDirectory) {
+            $extractedPath .= '/' . $originalDirectory;
+        }
 
         if (!is_dir($extractedPath)) {
             wp_delete_file($temporaryFile);
@@ -876,11 +884,11 @@ class LibraryController {
 
             $this->sendAjaxError(new WP_Error(
                 'exmoau_library_upload_missing_directory',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                esc_html__('Upload rejected: the validated article location was not found after extraction.', 'exmoment-author')
             ));
         }
 
-        $copyResult = copy_dir($extractedPath, $targetDirectory);
+        $copyResult = copy_dir($extractedPath, $targetDirectory, $structure['skip']);
 
         if (is_wp_error($copyResult)) {
             wp_delete_file($temporaryFile);
@@ -1705,9 +1713,10 @@ class LibraryController {
      * @return array<int, string>
      */
     private function getAllowedLibraryFileExtensions() {
-        return [
+        return array(
             'txt',
-        ];
+            'md',
+        );
     }
 
     /**
@@ -1772,20 +1781,45 @@ class LibraryController {
     /**
      * Validate the structure of an uploaded archive.
      *
-     * @param \ZipArchive $archive Opened archive instance.
+     * @param \ZipArchive $archive     Opened archive instance.
+     * @param string      $archiveName Uploaded archive filename used for root-level category naming.
      *
-     * @return array<string, string>|WP_Error Structured directory metadata or error details.
+     * @return array<string, mixed>|WP_Error Structured directory metadata or error details.
      */
-    private function inspectArchiveStructure(\ZipArchive $archive) {
+    private function inspectArchiveStructure(\ZipArchive $archive, $archiveName) {
         $totalFiles = $archive->numFiles;
-        $directories = [];
-        $txtFiles = 0;
+        $directories = array();
+        $ignoredEntries = array();
+        $articleFiles = 0;
+        $layout = '';
 
         for ($index = 0; $index < $totalFiles; $index++) {
             $stat = $archive->statIndex($index);
 
             if (!is_array($stat) || !isset($stat['name'])) {
                 continue;
+            }
+
+            $externalAttributes = (isset($stat['external_attributes']) ? (int) $stat['external_attributes'] : 0);
+
+            if (method_exists($archive, 'getExternalAttributesIndex')) {
+                $operatingSystem = 0;
+                $archiveAttributes = 0;
+
+                if ($archive->getExternalAttributesIndex($index, $operatingSystem, $archiveAttributes)) {
+                    $externalAttributes = (int) $archiveAttributes;
+                }
+            }
+
+            if (0 !== $externalAttributes) {
+                $fileType = (($externalAttributes >> 16) & 0xF000);
+
+                if (0120000 === $fileType) {
+                    return new WP_Error(
+                        'exmoau_library_upload_symlink',
+                        esc_html__('Upload rejected: symbolic link entries are not allowed.', 'exmoment-author')
+                    );
+                }
             }
 
             $rawName = (string) $stat['name'];
@@ -1796,16 +1830,18 @@ class LibraryController {
 
             $normalized = str_replace('\\', '/', $rawName);
 
-            if (false !== strpos($normalized, "\0") || false !== strpos($normalized, '../')) {
+            if (
+                false !== strpos($normalized, "\0") ||
+                '/' === substr($normalized, 0, 1) ||
+                preg_match('#^[A-Za-z]:/#', $normalized)
+            ) {
                 return new WP_Error(
                     'exmoau_library_upload_traversal',
-                    esc_html__('Upload rejected: archive paths are not allowed to contain traversal segments.', 'exmoment-author')
+                    esc_html__('Upload rejected: archive paths must be relative and cannot contain traversal segments.', 'exmoment-author')
                 );
             }
 
-            $normalized = ltrim($normalized, '/');
-
-            if ('' === $normalized || '__MACOSX/' === substr($normalized, 0, 9)) {
+            if ('' === $normalized) {
                 continue;
             }
 
@@ -1818,94 +1854,147 @@ class LibraryController {
                 continue;
             }
 
+            if (in_array('..', $segments, true)) {
+                return new WP_Error(
+                    'exmoau_library_upload_traversal',
+                    esc_html__('Upload rejected: archive paths must be relative and cannot contain traversal segments.', 'exmoment-author')
+                );
+            }
+
             $topLevel = $segments[0];
 
             if ('__MACOSX' === $topLevel) {
+                $ignoredEntries['__MACOSX'] = true;
+
+                continue;
+            }
+
+            if (!$isDirectory && 1 === count($segments) && $this->isSystemFilename($topLevel)) {
+                $ignoredEntries[$topLevel] = true;
+
                 continue;
             }
 
             if ($this->isHiddenName($topLevel)) {
                 return new WP_Error(
                     'exmoau_library_upload_hidden',
-                    esc_html__('Upload rejected: hidden directories are not supported.', 'exmoment-author')
+                    esc_html__('Upload rejected: hidden files and directories are not supported.', 'exmoment-author')
                 );
             }
 
-            if ($isDirectory && count($segments) > 1) {
+            if ($isDirectory) {
+                if (count($segments) > 1) {
+                    return new WP_Error(
+                        'exmoau_library_upload_nested_directory',
+                        esc_html__('Upload rejected: nested directories are not allowed.', 'exmoment-author')
+                    );
+                }
+
+                if ('root' === $layout) {
+                    return new WP_Error(
+                        'exmoau_library_upload_mixed_layout',
+                        esc_html__('Upload rejected: article files must be either at the archive root or inside one category directory, not both.', 'exmoment-author')
+                    );
+                }
+
+                $layout = 'directory';
+                $directories[$topLevel] = true;
+
+                continue;
+            }
+
+            $segmentCount = count($segments);
+
+            if ($segmentCount > 2) {
                 return new WP_Error(
                     'exmoau_library_upload_nested_directory',
                     esc_html__('Upload rejected: nested directories are not allowed.', 'exmoment-author')
                 );
             }
 
-            $directories[$topLevel] = true;
+            if (1 === $segmentCount) {
+                if ('directory' === $layout) {
+                    return new WP_Error(
+                        'exmoau_library_upload_mixed_layout',
+                        esc_html__('Upload rejected: article files must be either at the archive root or inside one category directory, not both.', 'exmoment-author')
+                    );
+                }
 
-            if ($isDirectory) {
-                continue;
+                $layout = 'root';
+                $fileName = $segments[0];
+            } else {
+                if ('root' === $layout) {
+                    return new WP_Error(
+                        'exmoau_library_upload_mixed_layout',
+                        esc_html__('Upload rejected: article files must be either at the archive root or inside one category directory, not both.', 'exmoment-author')
+                    );
+                }
+
+                $layout = 'directory';
+                $directories[$topLevel] = true;
+                $fileName = $segments[1];
             }
-
-            if (count($segments) !== 2) {
-                return new WP_Error(
-                    'exmoau_library_upload_depth',
-                    esc_html__('Upload rejected: files must live directly inside the category directory.', 'exmoment-author')
-                );
-            }
-
-            $fileName = $segments[1];
 
             if ($this->isSystemFilename($fileName)) {
+                $ignoredEntries[$fileName] = true;
+
                 continue;
             }
 
-            $extension = strtolower((string) pathinfo($fileName, PATHINFO_EXTENSION));
-
-            if ('txt' !== $extension) {
+            if ($this->isHiddenName($fileName)) {
                 return new WP_Error(
-                    'exmoau_library_upload_type_invalid',
-                    esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                    'exmoau_library_upload_hidden',
+                    esc_html__('Upload rejected: hidden files and directories are not supported.', 'exmoment-author')
                 );
             }
 
-            $txtFiles++;
+            if (!$this->isAllowedLibraryFilename($fileName)) {
+                return new WP_Error(
+                    'exmoau_library_upload_type_invalid',
+                    esc_html__('Upload rejected: archive must contain .txt or .md article files only.', 'exmoment-author')
+                );
+            }
+
+            $articleFiles++;
         }
 
         $validDirectories = array_keys($directories);
 
-        if (empty($validDirectories)) {
+        if ($articleFiles < 1) {
             return new WP_Error(
                 'exmoau_library_upload_empty_archive',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                esc_html__('Upload rejected: archive must contain .txt or .md article files only.', 'exmoment-author')
             );
         }
 
-        if (count($validDirectories) > 1) {
+        if ('directory' === $layout && count($validDirectories) > 1) {
             return new WP_Error(
                 'exmoau_library_upload_multiple_directories',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
+                esc_html__('Upload rejected: archive may contain only one category directory.', 'exmoment-author')
             );
         }
 
-        if ($txtFiles < 1) {
-            return new WP_Error(
-                'exmoau_library_upload_no_text',
-                esc_html__('Upload rejected: archive must contain one directory with .txt files only.', 'exmoment-author')
-            );
+        $original = ('directory' === $layout ? $validDirectories[0] : '');
+        $categoryName = $original;
+
+        if ('root' === $layout) {
+            $categoryName = (string) pathinfo($archiveName, PATHINFO_FILENAME);
         }
 
-        $original = $validDirectories[0];
-        $sanitized = $this->sanitizeDirectorySlug($original);
+        $sanitized = $this->sanitizeDirectorySlug($categoryName);
 
         if ('' === $sanitized) {
             return new WP_Error(
                 'exmoau_library_upload_directory_invalid',
-                esc_html__('Upload rejected: archive directory name is not allowed.', 'exmoment-author')
+                esc_html__('Upload rejected: the category name is not allowed.', 'exmoment-author')
             );
         }
 
-        return [
+        return array(
             'original'  => $original,
             'sanitized' => $sanitized,
-        ];
+            'skip'      => array_keys($ignoredEntries),
+        );
     }
 
     /**

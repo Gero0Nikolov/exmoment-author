@@ -3169,7 +3169,12 @@ runcated: bool, removed_invalid: array<int, string>}
         }
 
         $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        if ($extension !== 'txt') {
+        $allowedExtensions = array(
+            'txt',
+            'md',
+        );
+
+        if (!in_array($extension, $allowedExtensions, true)) {
             return true;
         }
 
