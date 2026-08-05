@@ -5,7 +5,7 @@ Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, 
 Requires at least: 7.0
 Requires PHP: 8.3
 Tested up to: 7.0
-Stable tag: 1.2.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,9 @@ The applicable terms and privacy policy depend on the provider selected in WordP
 5. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.3.0 =
+Migrated AI generation to the WordPress AI Client, added author context and per-job system prompt overrides, and fixed Job Setup tile text overflow.
+
 = 1.2.0 =
 Added .MD into the supported stack.
 
