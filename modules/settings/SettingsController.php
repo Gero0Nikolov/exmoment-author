@@ -80,6 +80,11 @@ class SettingsController {
     private const DEFAULT_AI_IMAGE_GENERATION_ENABLED = '1';
 
     /**
+     * Default state for including the public author display name in AI context.
+     */
+    private const DEFAULT_INCLUDE_AUTHOR_NAME_IN_AI_CONTEXT = '0';
+
+    /**
      * Minimum pixel dimension allowed for AI-generated images.
      */
     private const MIN_AI_IMAGE_DIMENSION = 256;
@@ -482,6 +487,21 @@ class SettingsController {
 
         self::registerOptionCacheHooks($aiImageGenerationEnabledOptionName);
 
+        $authorContextOptionName = self::getOptionName('include_author_name_in_ai_context');
+
+        register_setting(
+            self::SETTINGS_GROUP,
+            $authorContextOptionName,
+            array(
+                'type'              => 'string',
+                'sanitize_callback' => array(self::class, 'sanitizeIncludeAuthorNameInAiContext'),
+                'default'           => self::DEFAULT_INCLUDE_AUTHOR_NAME_IN_AI_CONTEXT,
+                'capability'        => 'manage_options',
+            )
+        );
+
+        self::registerOptionCacheHooks($authorContextOptionName);
+
         $aiImageStylePromptOptionName = self::getOptionName('ai_image_style_prompt');
 
         register_setting(
@@ -817,6 +837,20 @@ class SettingsController {
         $enabled = (int) $enabled;
 
         return ($enabled === 1);
+    }
+
+    /**
+     * Determine whether the public author display name should be sent as AI context.
+     *
+     * @return bool True only when the dedicated option is explicitly enabled.
+     */
+    public static function shouldIncludeAuthorNameInAiContext() {
+        $value = self::getOption(
+            'include_author_name_in_ai_context',
+            self::DEFAULT_INCLUDE_AUTHOR_NAME_IN_AI_CONTEXT
+        );
+
+        return $value === '1';
     }
 
     /**
@@ -1529,6 +1563,55 @@ class SettingsController {
     }
 
     /**
+     * Validate the author-context checkbox and preserve the prior value on failure.
+     *
+     * @param mixed $value Raw submitted value.
+     * @return string Canonical "1" or "0" value.
+     */
+    public static function sanitizeIncludeAuthorNameInAiContext($value) {
+        $optionKey = 'include_author_name_in_ai_context';
+        $previousValue = self::getOption(
+            $optionKey,
+            self::DEFAULT_INCLUDE_AUTHOR_NAME_IN_AI_CONTEXT
+        );
+
+        if (!current_user_can('manage_options')) {
+            add_settings_error(
+                self::SETTINGS_GROUP,
+                'exmoau_include_author_name_in_ai_context_capability',
+                esc_html__('You are not allowed to update author context settings.', 'exmoment-author'),
+                'error'
+            );
+
+            return $previousValue;
+        }
+
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if (is_int($value) && ($value === 0 || $value === 1)) {
+            return (string) $value;
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '0' || $value === '1') {
+                return $value;
+            }
+        }
+
+        add_settings_error(
+            self::SETTINGS_GROUP,
+            'exmoau_include_author_name_in_ai_context_invalid',
+            esc_html__('Choose a valid author context setting. The previous value was preserved.', 'exmoment-author'),
+            'error'
+        );
+
+        return $previousValue;
+    }
+
+    /**
      * Sanitize the AI image dimensions preset submission.
      *
      * Enforces capability checks, restricts values to the allowed presets, and
@@ -2055,20 +2138,21 @@ class SettingsController {
      */
     private static function rebuildSettingsCache() {
         $trackedOptions = [
-            'ai_provider'                 => '',
-            'ai_token_budget'             => self::DEFAULT_AI_TOKEN_BUDGET_KEY,
-            'gpt_debug_mode'              => '0',
-            'ai_behaviour_mode'           => self::DEFAULT_AI_BEHAVIOUR_MODE,
-            'augmented_user_system_prompt' => '',
-            'augmented_ai_model'          => self::DEFAULT_AI_MODEL,
-            'manual_user_system_prompt'   => '',
-            'manual_ai_model'             => self::DEFAULT_AI_MODEL,
-            'ai_image_model'              => self::DEFAULT_AI_IMAGE_MODEL,
-            'ai_image_generation_enabled' => self::DEFAULT_AI_IMAGE_GENERATION_ENABLED,
-            'ai_image_style_prompt'       => '',
-            'ai_image_dimensions'         => self::DEFAULT_AI_IMAGE_DIMENSIONS,
-            'ai_image_width'              => (string) self::DEFAULT_AI_IMAGE_DIMENSION,
-            'ai_image_height'             => (string) self::DEFAULT_AI_IMAGE_DIMENSION,
+            'ai_provider'                       => '',
+            'ai_token_budget'                   => self::DEFAULT_AI_TOKEN_BUDGET_KEY,
+            'gpt_debug_mode'                    => '0',
+            'ai_behaviour_mode'                 => self::DEFAULT_AI_BEHAVIOUR_MODE,
+            'augmented_user_system_prompt'      => '',
+            'augmented_ai_model'                => self::DEFAULT_AI_MODEL,
+            'manual_user_system_prompt'         => '',
+            'manual_ai_model'                   => self::DEFAULT_AI_MODEL,
+            'ai_image_model'                    => self::DEFAULT_AI_IMAGE_MODEL,
+            'ai_image_generation_enabled'       => self::DEFAULT_AI_IMAGE_GENERATION_ENABLED,
+            'include_author_name_in_ai_context' => self::DEFAULT_INCLUDE_AUTHOR_NAME_IN_AI_CONTEXT,
+            'ai_image_style_prompt'             => '',
+            'ai_image_dimensions'               => self::DEFAULT_AI_IMAGE_DIMENSIONS,
+            'ai_image_width'                    => (string) self::DEFAULT_AI_IMAGE_DIMENSION,
+            'ai_image_height'                   => (string) self::DEFAULT_AI_IMAGE_DIMENSION,
         ];
 
         $settings = [];

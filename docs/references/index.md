@@ -13,3 +13,4 @@
 - [Changelog Notes](changelog-notes.md) - Historical change-note conventions.
 - [AI Client Migration Implementation](ai-client-migration-implementation.md) - Completed changes and verification evidence.
 - [Instant Model Rejection Investigation](instant-model-rejection-investigation.md) - Root cause, targeted fix, and live validation for Instant job request rejection.
+- [Author Context and Job Prompt Overrides](author-context-and-job-system-prompt-implementation.md) - Resolution rules, privacy boundaries, and verification evidence.

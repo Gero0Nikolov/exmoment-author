@@ -375,6 +375,10 @@ class ExMomentAuthorCoreSystem {
                         'instantiate'  => true,
                     ],
                     [
+                        'class'        => 'JobsAiContextResolver',
+                        'instantiate'  => false,
+                    ],
+                    [
                         'class'        => 'JobsPublicationValidator',
                         'instantiate'  => true,
                     ],

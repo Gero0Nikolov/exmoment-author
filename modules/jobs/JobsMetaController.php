@@ -157,6 +157,56 @@ class JobsMetaController {
             'normal',
             'default'
         );
+
+        add_meta_box(
+            'exmoau_job_custom_system_prompt_box',
+            __('Custom System Prompt', 'exmoment-author'),
+            array($this, 'renderCustomSystemPromptMetaBox'),
+            self::POST_TYPE,
+            'normal',
+            'default'
+        );
+    }
+
+    /**
+     * Render the optional per-job editorial system prompt override.
+     *
+     * @param WP_Post $post Current job post.
+     * @return void
+     */
+    public function renderCustomSystemPromptMetaBox($post) {
+        if (!($post instanceof WP_Post) || !current_user_can('edit_post', $post->ID)) {
+            return;
+        }
+
+        $storedValue = get_post_meta(
+            $post->ID,
+            JobsAiContextResolver::META_CUSTOM_SYSTEM_PROMPT,
+            true
+        );
+        $normalizedValue = JobsAiContextResolver::sanitizeCustomSystemPrompt($storedValue);
+        $prompt = is_wp_error($normalizedValue) ? '' : $normalizedValue;
+        ?>
+        <div class="exmoau-job-prompt">
+            <p class="description" id="exmoau_job_custom_system_prompt_description">
+                <?php esc_html_e('Optional. When provided, this editorial system prompt replaces the general AI Setup system prompt for this job. Required article and SEO output instructions remain active.', 'exmoment-author'); ?>
+            </p>
+            <label class="screen-reader-text" for="exmoau_job_custom_system_prompt">
+                <?php esc_html_e('Custom System Prompt', 'exmoment-author'); ?>
+            </label>
+            <textarea
+                id="exmoau_job_custom_system_prompt"
+                name="exmoau_job_custom_system_prompt"
+                class="large-text code"
+                rows="10"
+                maxlength="<?php echo esc_attr(JobsAiContextResolver::MAX_CUSTOM_SYSTEM_PROMPT_LENGTH); ?>"
+                aria-describedby="exmoau_job_custom_system_prompt_description"
+            ><?php echo esc_textarea($prompt); ?></textarea>
+            <p class="description">
+                <?php esc_html_e('Maximum 10,000 characters. Line breaks are preserved.', 'exmoment-author'); ?>
+            </p>
+        </div>
+        <?php
     }
 
     /**
@@ -1356,6 +1406,14 @@ class JobsMetaController {
             return;
         }
 
+        if (function_exists('wp_is_post_autosave') && wp_is_post_autosave($postId)) {
+            return;
+        }
+
+        if (function_exists('wp_is_post_revision') && wp_is_post_revision($postId)) {
+            return;
+        }
+
         if (!current_user_can('edit_post', $postId)) {
             return;
         }
@@ -1633,6 +1691,28 @@ class JobsMetaController {
             $errors
         );
 
+        $storedCustomPrompt = get_post_meta(
+            $postId,
+            JobsAiContextResolver::META_CUSTOM_SYSTEM_PROMPT,
+            true
+        );
+        $storedCustomPrompt = JobsAiContextResolver::sanitizeCustomSystemPrompt($storedCustomPrompt);
+        $customSystemPrompt = is_wp_error($storedCustomPrompt) ? '' : $storedCustomPrompt;
+
+        if (isset($_POST['exmoau_job_custom_system_prompt'])) {
+            $customPromptInput = wp_unslash($_POST['exmoau_job_custom_system_prompt']);
+            $sanitizedCustomPrompt = JobsAiContextResolver::sanitizeCustomSystemPrompt($customPromptInput);
+
+            if (is_wp_error($sanitizedCustomPrompt)) {
+                $errors->add(
+                    $sanitizedCustomPrompt->get_error_code(),
+                    esc_html($sanitizedCustomPrompt->get_error_message())
+                );
+            } else {
+                $customSystemPrompt = $sanitizedCustomPrompt;
+            }
+        }
+
         $repeatingDays = array_values($repeatingDays);
         $selectedDirectories = array_values($selectedDirectories);
 
@@ -1668,6 +1748,11 @@ class JobsMetaController {
             $this->updateMetaValue($postId, self::META_DIRECTIVE_POST_AUTHOR, '');
         }
         $this->updateMetaValue($postId, self::META_DIRECTIVE_GENERATION_COUNT, $directiveGenerationCount);
+        $this->updateMetaValue(
+            $postId,
+            JobsAiContextResolver::META_CUSTOM_SYSTEM_PROMPT,
+            $customSystemPrompt
+        );
     }
 
     /**

@@ -26,6 +26,8 @@ $generalDescription = esc_html__(
     'exmoment-author'
 );
 $descriptionId = 'exmoau_ai_behaviour_mode_description';
+$authorContextFieldName = SettingsController::getOptionFieldName('include_author_name_in_ai_context');
+$authorContextEnabled = SettingsController::shouldIncludeAuthorNameInAiContext();
 
 $defaultAiModel = SettingsController::getDefaultAiModel();
 $systemPromptTemplate = SettingsController::getAutonomousSystemPrompt();
@@ -162,6 +164,29 @@ $selectAriaControls = implode(
     )
 );
 ?>
+<tr>
+    <th scope="row">
+        <label for="exmoau_include_author_name_in_ai_context">
+            <?php esc_html_e('Include author name in AI context', 'exmoment-author'); ?>
+        </label>
+    </th>
+    <td>
+        <input type="hidden" name="<?php echo esc_attr($authorContextFieldName); ?>" value="0" />
+        <label for="exmoau_include_author_name_in_ai_context">
+            <input
+                type="checkbox"
+                id="exmoau_include_author_name_in_ai_context"
+                name="<?php echo esc_attr($authorContextFieldName); ?>"
+                value="1"
+                <?php checked($authorContextEnabled); ?>
+            />
+            <?php esc_html_e('Send the selected WordPress author’s display name to the AI when generating article content and featured images.', 'exmoment-author'); ?>
+        </label>
+        <p class="description">
+            <?php esc_html_e('Disabled by default. Only the public display name is sent as tone context; it is not requested as article text, a byline, a portrait, or visible image text.', 'exmoment-author'); ?>
+        </p>
+    </td>
+</tr>
 <tr>
     <th scope="row">
         <label for="<?php echo esc_attr($fieldId); ?>"><?php echo esc_html($label); ?></label>

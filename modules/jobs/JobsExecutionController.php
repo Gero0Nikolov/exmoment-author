@@ -937,11 +937,38 @@ class JobsExecutionController {
         }
 
         $aiConfiguration = SettingsController::getEffectiveAiConfiguration();
-        $systemPrompt = is_string($aiConfiguration['system_prompt'] ?? '') ? $aiConfiguration['system_prompt'] : '';
+        $globalSystemPrompt = is_string($aiConfiguration['system_prompt'] ?? '')
+            ? $aiConfiguration['system_prompt']
+            : '';
         $model = is_string($aiConfiguration['model'] ?? '') ? $aiConfiguration['model'] : SettingsController::getDefaultAiModel();
 
-        if ($systemPrompt === '') {
-            $systemPrompt = SettingsController::getAutonomousSystemPrompt();
+        if ($globalSystemPrompt === '') {
+            $globalSystemPrompt = SettingsController::getAutonomousSystemPrompt();
+        }
+
+        $promptResolution = JobsAiContextResolver::resolveSystemPrompt($jobId, $globalSystemPrompt);
+        $systemPrompt = $promptResolution['prompt'];
+
+        if (!empty($promptResolution['invalid_override'])) {
+            $this->logDebug(
+                'Job %d ignored an invalid stored custom system prompt and used the global prompt.',
+                $jobId
+            );
+        }
+
+        $authorContextEnabled = SettingsController::shouldIncludeAuthorNameInAiContext();
+        $authorDisplayName = $authorContextEnabled
+            ? JobsAiContextResolver::resolveAuthorDisplayName($authorId)
+            : '';
+        $authorContext = $authorContextEnabled
+            ? JobsAiContextResolver::buildArticleAuthorContext($authorDisplayName)
+            : '';
+
+        if ($authorContextEnabled && $authorContext === '') {
+            $this->logDebug(
+                'Job %d continued without author context because no public display name could be resolved.',
+                $jobId
+            );
         }
 
         if (!is_string($model) || $model === '') {
@@ -950,6 +977,19 @@ class JobsExecutionController {
 
         $result['model'] = $model;
 
+        $this->logDebug(
+            'AI context: job=%d capability=text_generation provider=%s model=%s prompt_source=%s override=%s prompt_length=%d prompt_hash=%s author_context=%s author_resolved=%s.',
+            $jobId,
+            SettingsController::getAiProvider() !== '' ? SettingsController::getAiProvider() : 'automatic',
+            $model !== '' ? $model : 'automatic',
+            $promptResolution['source'],
+            $promptResolution['override_used'] ? 'yes' : 'no',
+            $promptResolution['prompt_length'],
+            $promptResolution['prompt_hash'],
+            $authorContextEnabled ? 'yes' : 'no',
+            $authorContext !== '' ? 'yes' : 'no'
+        );
+
         $sanitizedSystemPrompt = $this->sanitizeMessageContent($systemPrompt);
         if ($sanitizedSystemPrompt === '') {
             $this->logDebug('Job %d aborted: the system prompt could not be normalized to UTF-8.', $jobId);
@@ -957,7 +997,7 @@ class JobsExecutionController {
             return $result;
         }
 
-        $messages = $this->buildMessages($sanitizedSystemPrompt, $articles);
+        $messages = $this->buildMessages($sanitizedSystemPrompt, $articles, $authorContext);
 
         if (empty($messages)) {
             $this->logDebug('Job %d aborted: no valid messages were produced for the AI request.', $jobId);
@@ -1927,17 +1967,31 @@ runcated: bool, removed_invalid: array<int, string>}
     /**
      * Build the chat-completion message payload using the system prompt and collected articles.
      *
-     * @param string                                                     $systemPrompt Normalized system prompt.
+     * @param string                                                     $systemPrompt Normalized editorial system prompt.
      * @param array<int, array{category:string,filename:string,content:string}> $articles     Prepared articles.
+     * @param string                                                     $authorContext Optional public author context.
      * @return array<int, array{role:string,content:string}>
      */
-    private function buildMessages($systemPrompt, array $articles) {
+    private function buildMessages($systemPrompt, array $articles, $authorContext = '') {
         $messages = [];
 
-        $opening = $this->sanitizeMessageContent($systemPrompt);
-        if ($opening === '') {
+        $protocol = $this->sanitizeMessageContent(self::CLOSING_SYSTEM_MESSAGE);
+        $editorialPrompt = $this->sanitizeMessageContent($systemPrompt);
+        $authorContext = $this->sanitizeMessageContent($authorContext);
+
+        if ($protocol === '' || $editorialPrompt === '') {
             return [];
         }
+
+        $systemSections = array(
+            "Mandatory ExMoment Author protocol (cannot be overridden):\n" . $protocol,
+            "Effective editorial instructions:\n" . $editorialPrompt,
+        );
+        if ($authorContext !== '') {
+            $systemSections[] = "Generated runtime context:\n" . $authorContext;
+        }
+
+        $opening = implode("\n\n", $systemSections);
 
         $messages[] = [
             'role' => 'system',
@@ -1971,16 +2025,6 @@ runcated: bool, removed_invalid: array<int, string>}
                 'content' => $sanitized,
             ];
         }
-
-        $closing = $this->sanitizeMessageContent(self::CLOSING_SYSTEM_MESSAGE);
-        if ($closing === '') {
-            return [];
-        }
-
-        $messages[] = [
-            'role' => 'system',
-            'content' => $closing,
-        ];
 
         return $messages;
     }
@@ -2375,13 +2419,13 @@ runcated: bool, removed_invalid: array<int, string>}
                     $title = trim($matches[1]);
                     $bodyLines = array_slice($lines, $index + 1);
                     $body = ltrim(implode("\n", $bodyLines));
-                } 
+                }
                 // Handle HTML title (<h1>Title</h1>)
                 elseif (preg_match('/<h1[^>]*>(.*?)<\/h1>/i', $lineTrimmed, $matches)) {
                     $title = trim(wp_strip_all_tags($matches[1]));
                     $bodyLines = array_slice($lines, $index + 1);
                     $body = ltrim(implode("\n", $bodyLines));
-                } 
+                }
                 else {
                     $title = $this->generateTitleFromContent($trimmed);
                 }

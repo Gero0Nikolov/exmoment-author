@@ -4,6 +4,7 @@ namespace ExMomentAuthor\Modules\Gpt;
 
 use ExMomentAuthor\Modules\Ai\AiService;
 use ExMomentAuthor\Core\ExMomentAuthorCoreSystem;
+use ExMomentAuthor\Modules\Jobs\JobsAiContextResolver;
 use ExMomentAuthor\Modules\Settings\SettingsController;
 use WordPress\AiClient\Messages\DTO\MessagePart;
 use WordPress\AiClient\Messages\DTO\ModelMessage;
@@ -110,7 +111,7 @@ class GptController {
      * ```
      */
     public function __construct($config) {
-        
+
         // Set Base GPT config
         self::$config = array_merge(
             $config,
@@ -354,7 +355,7 @@ class GptController {
             empty($controllersDir) ||
             count($controllersDir) <= 2
         ) { return false; }
-        
+
         foreach ($controllersDir as $controllerScript) {
             if (in_array($controllerScript, self::$config['restrictedControllers'])) { continue; }
 
@@ -367,7 +368,7 @@ class GptController {
             ) { continue; }
 
             require_once $controllerPath;
-                
+
             $controllerClass = sprintf(
                 '\\ExMomentAuthor\\Modules\\Gpt\\Controllers\\%s',
                 $controllerClassName
@@ -1314,7 +1315,30 @@ class GptController {
             ];
         }
 
-        $prompt = $this->buildImagePromptForPost($post, $imageSettings['style_prompt']);
+        $authorContextEnabled = SettingsController::shouldIncludeAuthorNameInAiContext();
+        $authorDisplayName = $authorContextEnabled
+            ? JobsAiContextResolver::resolveAuthorDisplayName($post->post_author)
+            : '';
+        $authorContext = $authorContextEnabled
+            ? JobsAiContextResolver::buildImageAuthorContext($authorDisplayName)
+            : '';
+
+        if ($authorContextEnabled && $authorContext === '') {
+            $this->logImageGenerationDebug(
+                $postId,
+                'Image generation continued without author context because no public display name could be resolved.',
+                array(
+                    'author_context_enabled' => true,
+                    'author_resolved'        => false,
+                )
+            );
+        }
+
+        $prompt = $this->buildImagePromptForPost(
+            $post,
+            $imageSettings['style_prompt'],
+            $authorContext
+        );
         if ($prompt === '') {
             return [
                 'success' => false,
@@ -1343,10 +1367,12 @@ class GptController {
             $postId,
             'Preparing AI image generation request.',
             array(
-                'selected_model' => $model,
-                'prompt_length' => strlen($prompt),
-                'requested_size' => $size,
-                'debug_mode' => false,
+                'selected_model'         => $model,
+                'prompt_length'          => strlen($prompt),
+                'requested_size'         => $size,
+                'debug_mode'             => false,
+                'author_context_enabled' => $authorContextEnabled,
+                'author_resolved'        => $authorContext !== '',
             )
         );
 
@@ -1578,10 +1604,12 @@ class GptController {
     /**
      * Build a concise AI image prompt from post content.
      *
-     * @param WP_Post $post Target post object.
+     * @param WP_Post $post          Target post object.
+     * @param string  $stylePrompt   Global image style prompt.
+     * @param string  $authorContext Optional public author context instruction.
      * @return string Sanitized prompt string.
      */
-    private function buildImagePromptForPost(WP_Post $post, $stylePrompt = '') {
+    private function buildImagePromptForPost(WP_Post $post, $stylePrompt = '', $authorContext = '') {
         $content = is_string($post->post_content) ? $post->post_content : '';
         $content = wp_strip_all_tags($content, true);
         $content = preg_replace('/[\r\n\t]+/', ' ', $content);
@@ -1623,6 +1651,16 @@ class GptController {
 
         if (strlen($combinedPrompt) > 500) {
             $combinedPrompt = substr($combinedPrompt, 0, 500);
+        }
+
+        $authorContext = is_string($authorContext) ? $authorContext : '';
+        $authorContext = wp_strip_all_tags($authorContext, true);
+        $authorContext = preg_replace('/[\r\n\t]+/', ' ', $authorContext);
+        $authorContext = preg_replace('/\s+/', ' ', $authorContext);
+        $authorContext = is_string($authorContext) ? trim($authorContext) : '';
+
+        if ($authorContext !== '') {
+            $combinedPrompt = trim($combinedPrompt . ' ' . $authorContext);
         }
 
         return $combinedPrompt;
@@ -1788,7 +1826,7 @@ class GptController {
         if (empty($this->controllers)) { return $functions; }
 
         foreach ($this->controllers as $controllerName => $controller) {
-            
+
             $function = [
                 'name' => $controllerName,
                 'description' => $controller->description,
