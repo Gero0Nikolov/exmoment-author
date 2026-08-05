@@ -17,6 +17,7 @@
 - [Jobs Admin Workflows](jobs-admin-workflows.md) - Common wp-admin job operations.
 - [Library Admin UI](library-admin-ui.md) - Library UI task runbook.
 - [Library Seeding](library-seeding.md) - Activation-time archive extraction checks.
+- [AI Client Migration Plan](ai-client-migration-plan.md) - Migration phases, test plan, and rollback.
 - [Scheduler Lifecycle](scheduler-lifecycle.md) - Runtime lifecycle of worker execution.
 - [Used Articles Registry Rollout](used-articles-registry-rollout.md) - Rollout checklist.
 - [Used Articles UTC Regression Check](used-articles-utc-regression-check.md) - UTC safety test runbook.

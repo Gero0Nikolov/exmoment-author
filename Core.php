@@ -349,6 +349,12 @@ class ExMomentAuthorCoreSystem {
                 'modules' => $pluginPath .'/modules',
             ],
             'autoload' => [
+                'ai' => array(
+                    array(
+                        'class'        => 'AiService',
+                        'instantiate'  => true,
+                    ),
+                ),
                 'log' => [
                     [
                         'class'        => 'LogService',
@@ -528,6 +534,7 @@ class ExMomentAuthorCoreSystem {
         self::maybeEnableAlternateWpCron();
 
         add_filter('cron_request', [__CLASS__, 'filterCronRequestForLocalDocker'], 10, 2);
+        add_filter('wp_ai_client_default_request_timeout', array(__CLASS__, 'filterAiClientRequestTimeout'));
 
         // Load Admin Resources.
         add_action('admin_enqueue_scripts', [$this, 'loadAdminResources']);
@@ -536,6 +543,15 @@ class ExMomentAuthorCoreSystem {
         // Init Pulse.
         add_action('wp_ajax_exmoau_pulse_vibe', [$this, 'pulseVibe']);
         add_action('wp_ajax_nopriv_exmoau_pulse_vibe', [$this, 'pulseVibe']);
+    }
+
+    /**
+     * Allow long-running article and image generation requests to complete.
+     *
+     * @return float
+     */
+    public static function filterAiClientRequestTimeout() {
+        return 120.0;
     }
 
     /**

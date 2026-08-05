@@ -82,8 +82,8 @@ foreach ($availableAiModels as $model) {
 }
 
 if ($aiModelOptions === []) {
-    $aiModelOptions[$defaultAiModel] = 'GPT-5';
-    $aiModelNamesById[$defaultAiModel] = 'GPT-5';
+    $aiModelOptions[''] = esc_html__('Automatic selection', 'exmoment-author');
+    $aiModelNamesById[''] = esc_html__('Automatic selection', 'exmoment-author');
 }
 
 $autonomousModelName = isset($aiModelNamesById[$defaultAiModel]) ? $aiModelNamesById[$defaultAiModel] : '';
@@ -102,7 +102,7 @@ $behaviourOptions = [
         'heading'      => esc_html__('Autonomous Mode', 'exmoment-author'),
         'partial_path' => $aiSetupPartialsDirectory . 'autonomous.php',
         'context'      => [
-            'description'            => esc_html__('This method defines an AI-optimized system prompt and auto-selects the latest most powerful model from the OpenAI models library.', 'exmoment-author'),
+            'description'            => esc_html__('This method defines an AI-optimized system prompt and automatically selects a compatible model from the configured provider.', 'exmoment-author'),
             'system_prompt'          => $systemPromptTemplate,
             'system_prompt_field_id' => 'exmoau_autonomous_system_prompt',
             'ai_model'               => $defaultAiModel,
@@ -116,7 +116,7 @@ $behaviourOptions = [
         'heading'      => esc_html__('Augmented Mode', 'exmoment-author'),
         'partial_path' => $aiSetupPartialsDirectory . 'augmented.php',
         'context'      => [
-            'description'                    => esc_html__('This method allows the user to define the default system prompt. On save, ExMoment Author optimizes the input with the selected OpenAI model and stores the enhanced version for reuse.', 'exmoment-author'),
+            'description'                    => esc_html__('This method allows the user to define the default system prompt. On save, ExMoment Author optimizes the input with the selected compatible model and stores the enhanced version for reuse.', 'exmoment-author'),
             'system_prompt'                  => ($augmentedOptimizedPrompt !== '' ? $augmentedOptimizedPrompt : ''),
             'system_prompt_field_id'         => 'exmoau_augmented_system_prompt',
             'user_system_prompt'             => $augmentedUserSystemPrompt,

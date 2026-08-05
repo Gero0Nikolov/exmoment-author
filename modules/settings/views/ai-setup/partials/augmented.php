@@ -53,7 +53,7 @@ if ($aiModel === '' || ($aiModelOptions !== [] && !array_key_exists($aiModel, $a
         <option value="<?php echo esc_attr($modelValue); ?>" <?php echo esc_html($selected); ?>><?php echo esc_html($modelLabel); ?></option>
         <?php endforeach; ?>
     </select>
-    <p class="description"><?php esc_html_e('Select the OpenAI model used after the system prompt is optimized.', 'exmoment-author'); ?></p>
+    <p class="description"><?php esc_html_e('Select the compatible model used after the system prompt is optimized.', 'exmoment-author'); ?></p>
 </div>
 <div class="exmoau-settings__field-group">
     <label class="exmoau-settings__field-label" for="<?php echo esc_attr($systemPromptFieldId); ?>"><?php esc_html_e('Optimized System Prompt', 'exmoment-author'); ?></label>

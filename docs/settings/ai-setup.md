@@ -5,15 +5,17 @@ This document captures AI-related setup concerns exposed through plugin settings
 ## Typical Setup Flow
 
 1. Open plugin settings in wp-admin.
-2. Configure OpenAI/API credentials used by GPT flows.
-3. Select model/behavior options required for generation.
-4. Review the AI image configuration, which now defaults to `gpt-image-2`.
-5. Save and validate configuration through available diagnostics.
+2. Open the native **Settings → Connectors** screen.
+3. Install and configure a WordPress AI provider adapter.
+4. Return to ExMoment Author and verify the connection status.
+5. Leave provider/model on automatic selection or choose a discovered option.
+6. Select the behavior and image options required for generation.
 
 ## Operational Notes
 
-- Keep credentials in WordPress options, never hardcoded in source.
+- Provider credentials belong exclusively to WordPress Connectors; ExMoment Author does not read or store them.
 - Revalidate behavior after model or prompt strategy changes.
-- AI image model selections are validated against a fixed allowlist: `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`, and `dall-e-3`.
-- `dall-e-3` is retained only as a legacy-compatible option for image generation, and its availability depends on the current OpenAI API/runtime.
-- Current GPT Image requests are sent without `response_format`; the plugin accepts either base64-style or URL-style image responses from the OpenAI Images API.
+- Provider and model lists are discovered dynamically and filtered by text or image capability.
+- Empty provider/model values mean automatic selection by the WordPress AI Client.
+- ExMoment Author accepts the AI Client's inline or remote file DTO for image generation.
+- WordPress 7.0 or later is required.

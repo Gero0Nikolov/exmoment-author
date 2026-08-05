@@ -11,3 +11,5 @@
 - [GPT Module Methods](gpt-module-methods.md) - Method-level GPT quick reference.
 - [Vendor Directory](vendor-directory.md) - Third-party dependency handling guidance.
 - [Changelog Notes](changelog-notes.md) - Historical change-note conventions.
+- [AI Client Migration Implementation](ai-client-migration-implementation.md) - Completed changes and verification evidence.
+- [Instant Model Rejection Investigation](instant-model-rejection-investigation.md) - Root cause, targeted fix, and live validation for Instant job request rejection.

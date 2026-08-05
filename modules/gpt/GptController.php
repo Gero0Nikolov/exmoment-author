@@ -2,14 +2,12 @@
 
 namespace ExMomentAuthor\Modules\Gpt;
 
-use GuzzleHttp\Exception\RequestException;
-use OpenAI\Exceptions\ErrorException;
-use OpenAI\Exceptions\TransporterException;
-use Psr\Http\Message\RequestInterface;
-use Psr\Http\Message\ResponseInterface;
-use \OpenAI\OpenAI;
-
+use ExMomentAuthor\Modules\Ai\AiService;
+use ExMomentAuthor\Core\ExMomentAuthorCoreSystem;
 use ExMomentAuthor\Modules\Settings\SettingsController;
+use WordPress\AiClient\Messages\DTO\MessagePart;
+use WordPress\AiClient\Messages\DTO\ModelMessage;
+use WordPress\AiClient\Messages\DTO\UserMessage;
 use WP_Post;
 
 class GptController {
@@ -21,7 +19,7 @@ class GptController {
     public $controllers;
 
     private static $weightsMap;
-    private $client;
+    private $aiService;
 
     /**
      * Captures diagnostics for the most recent chat completion request.
@@ -31,7 +29,7 @@ class GptController {
     private $lastChatCompletionDiagnostics;
 
     /**
-     * Cached OpenAI model metadata for the current process.
+     * Cached AI model metadata for the current process.
      *
      * @var array<int, array{id: string, name: string}>
      */
@@ -47,10 +45,10 @@ class GptController {
     /**
      * Default model identifier used as a safe fallback when the API is unavailable.
      */
-    private const DEFAULT_MODEL_ID = 'gpt-5-nano';
+    private const DEFAULT_MODEL_ID = '';
 
     /**
-     * Transient key used to persist the OpenAI model list between requests.
+     * Transient key retained for clearing model metadata from pre-migration installs.
      */
     private const MODEL_LIST_TRANSIENT = 'exmoau_gpt_model_list';
 
@@ -92,13 +90,12 @@ class GptController {
     }
 
     /**
-     * Bootstraps the GPT module, loads function controllers, and prepares the OpenAI client.
+     * Bootstrap the GPT compatibility module and load function controllers.
      *
      * The constructor merges the provided configuration with module defaults, prepares the
-     * controller registry, and immediately initialises the OpenAI PHP SDK using the stored API
-     * key. The API key is read from the secure settings store via SettingsController and is never
-     * logged or echoed. Controller classes are autoloaded from the configured directory while
-     * ensuring restricted files are ignored.
+     * controller registry, and resolves the internal WordPress AI Client service. Provider
+     * credentials remain under WordPress ownership. Controller classes are autoloaded from the
+     * configured directory while ensuring restricted files are ignored.
      *
      * @param array<string, mixed> $config Module configuration such as temperature defaults and
      *                                     filesystem paths. Unexpected keys are ignored.
@@ -145,12 +142,11 @@ class GptController {
     }
 
     /**
-     * Initialise module services, autoload function controllers, and configure the OpenAI client.
+     * Initialise module services and autoload function controllers.
      *
-     * This method loads controller classes from disk and instantiates the OpenAI SDK with the API
-     * key stored via SettingsController. It configures a custom Guzzle client and stream handler but
-     * does not dispatch any HTTP requests by itself. The API key is never persisted, and failures to
-     * load controllers are logged only when WP_DEBUG is enabled.
+     * This method loads controller classes from disk and resolves the internal AI service. It does
+     * not dispatch a generation request. Failures to load controllers are logged only when WP_DEBUG
+     * is enabled.
      *
      * @return void
      * @since 1.1.0
@@ -171,75 +167,7 @@ class GptController {
             return;
         }
 
-        $apiKey = SettingsController::getOption('openai_api_key');
-
-        $this->configureClient($apiKey);
-    }
-
-    /**
-     * Update the configured API key for the OpenAI client at runtime.
-     *
-     * Allows callers to provide a fresh credential without creating a new controller instance.
-     * Debug mode short-circuits to avoid mutating the client while bypassing API calls.
-     *
-     * @param string $apiKey Sanitised OpenAI API key.
-     * @return bool True when the client was configured successfully or debug mode short-circuits.
-     */
-    public function setApiKey($apiKey) {
-        if ($this->isDebugModeEnabled()) {
-            $this->logDebugBypass('api_key_override');
-
-            return true;
-        }
-
-        return $this->configureClient($apiKey);
-    }
-
-    /**
-     * Configure the OpenAI client using the supplied API key.
-     *
-     * This prepares the SDK for subsequent remote calls but does not make an HTTP request. Passing
-     * an empty API key clears the client reference to prevent accidental network traffic.
-     *
-     * @param string $apiKey Potentially untrimmed API key value.
-     * @return bool True when the client is ready for use; false when no valid key is provided or an error occurs.
-     */
-    private function configureClient($apiKey) {
-        $apiKey = (is_string($apiKey) ? trim($apiKey) : '');
-
-        if ($apiKey === '') {
-            $this->client = null;
-
-            return false;
-        }
-
-        try {
-            $this->client = \OpenAI::factory()
-                ->withApiKey($apiKey)
-                // ->withOrganization('your-organization') // default: null
-                // ->withProject('ExMomentAuthor') // default: null
-                ->withBaseUri('api.openai.com/v1') // default: api.openai.com/v1
-                ->withHttpClient($httpClient = new \GuzzleHttp\Client([])) // default: HTTP client found using PSR-18 HTTP Client Discovery
-                // ->withHttpHeader('X-My-Header', 'foo')
-                // ->withQueryParam('my-param', 'bar')
-                ->withStreamHandler(fn (RequestInterface $request): ResponseInterface => $httpClient->send($request, [
-                    'stream' => false // Allows to provide a custom stream handler for the http client.
-                ]))
-                ->make();
-        } catch (\Throwable $exception) {
-            $this->client = null;
-
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
-                if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.client', sprintf('Failed to configure GPT client: %s', $exception->getMessage()), [], 0);
-                }
-            }
-
-            return false;
-        }
-
-        return true;
+        $this->aiService = $this->resolveAiService();
     }
 
     /**
@@ -293,7 +221,7 @@ class GptController {
      */
     private function resolveMaxTokens($weight) {
         $weightsMap = self::getWeightsMap();
-        $defaultWeightKey = SettingsController::getDefaultOpenAiWeightKey();
+        $defaultWeightKey = SettingsController::getDefaultAiTokenBudgetKey();
 
         $normalizedWeightKey = '';
 
@@ -351,7 +279,7 @@ class GptController {
     /**
      * Build a deterministic chat completion response for debug mode.
      *
-     * @return object Generic response object mirroring the shape of OpenAI\Responses\Chat\CreateResponse.
+     * @return object Generic response object matching the plugin's legacy chat response shape.
      */
     private function buildDebugChatCompletionResponse() {
         $message = (object) [
@@ -475,12 +403,8 @@ class GptController {
     /**
      * Retrieve an ordered list of GPT models available to the plugin.
      *
-     * Returns cached model metadata enriched with any mandatory identifiers supplied via
-     * $ensureModelIds. The method first checks a runtime cache, then a WordPress transient, and
-     * finally the OpenAI models API when necessary. API failures fall back to a deterministic
-     * default list to keep the UI responsive. External requests honour the SDK's configured
-     * timeouts; transient storage expires after five minutes. Debug mode bypasses the remote call
-     * and immediately returns the fallback list merged with required identifiers.
+     * Returns provider and model metadata discovered through the WordPress AI Client, enriched with
+     * mandatory identifiers supplied via $ensureModelIds. No credentials are read by this module.
      *
      * @param array<int, string> $ensureModelIds Model identifiers that must be included in the
      *                                           response even if absent from the API.
@@ -496,35 +420,32 @@ class GptController {
      * ```
      */
     public function getAllGptModels(array $ensureModelIds = []) {
-        $ensureModelIds[] = self::DEFAULT_MODEL_ID;
-        $ensureModelIds = $this->normalizeModelIdList($ensureModelIds);
+        $models = array();
+        $service = $this->resolveAiService();
 
-        if ($this->isDebugModeEnabled()) {
-            $this->logDebugBypass('model_listing');
-
-            return $this->buildFallbackModelList($ensureModelIds);
-        }
-
-        $cachedModels = $this->getCachedModelList();
-
-        if (null === $cachedModels) {
-            $fetchedModels = $this->fetchAllGptModels();
-
-            if ($fetchedModels !== []) {
-                $this->setCachedModelList($fetchedModels);
-                $cachedModels = $fetchedModels;
-            } else {
-                self::$modelListCache = [];
-                self::$modelListCacheInitialised = true;
-                $cachedModels = [];
+        if ($service instanceof AiService) {
+            foreach ($service->discover('text') as $provider) {
+                foreach ($provider['models'] as $model) {
+                    $models[$model['id']] = array(
+                        'id'       => $model['id'],
+                        'name'     => sprintf('%s — %s', $model['name'], $provider['name']),
+                        'provider' => $provider['id'],
+                    );
+                }
             }
         }
 
-        if ($cachedModels === []) {
-            return $this->buildFallbackModelList($ensureModelIds);
+        foreach ($this->normalizeModelIdList($ensureModelIds) as $modelId) {
+            if (!isset($models[$modelId])) {
+                $models[$modelId] = array(
+                    'id'       => $modelId,
+                    'name'     => self::formatModelName($modelId),
+                    'provider' => '',
+                );
+            }
         }
 
-        return $this->mergeModelListWithEnsures($cachedModels, $ensureModelIds);
+        return array_values($models);
     }
 
     /**
@@ -543,42 +464,17 @@ class GptController {
      * ```
      */
     public function getLatestGptModel() {
-        $preferredOrder = [
-            self::DEFAULT_MODEL_ID,
-            'gpt-5-mini',
-            'gpt-5-nano',
-        ];
+        $models = $this->getAllGptModels();
 
-        $gptModels = $this->getAllGptModels($preferredOrder);
-        $availableIds = array_map(
-            static function ($model) {
-                return (is_array($model) && isset($model['id'])) ? $model['id'] : '';
-            },
-            $gptModels
-        );
-
-        foreach ($preferredOrder as $modelId) {
-            if (in_array($modelId, $availableIds, true)) {
-                return $modelId;
-            }
-        }
-
-        foreach ($availableIds as $modelId) {
-            if ($modelId !== '') {
-                return $modelId;
-            }
-        }
-
-        return self::DEFAULT_MODEL_ID;
+        return isset($models[0]['id']) ? (string) $models[0]['id'] : '';
     }
 
     /**
-     * Create a legacy text completion using the deprecated Completions API.
+     * Create a plain text generation through the internal AI service.
      *
-     * Selects a max token count from the internal weight map and issues a synchronous OpenAI
-     * completions request. This method is maintained for backward compatibility and should only be
-     * invoked with sanitised prompts; sensitive data is transmitted over TLS to api.openai.com. When
-     * debug mode is active the remote call is bypassed and a deterministic payload is returned.
+     * Selects a maximum output token count from the internal budget map and issues a synchronous
+     * provider-neutral request. This method is retained for internal compatibility. When debug mode
+     * is active the remote call is bypassed and a deterministic payload is returned.
      *
      * @param string     $prompt Free-form prompt text already sanitised for API transport.
      * @param int|string $weight Token weight key mapped to max token allowances.
@@ -606,34 +502,40 @@ class GptController {
             return $this->buildDebugCompletionPayload();
         }
 
-        $result = $this->client->completions()->create([
-            'model' => 'text-davinci-003',
-            'prompt' => $prompt,
-            'max_tokens' => $maxTokens,
-        ]);
+        $result = $this->resolveAiService()->generateText(
+            (string) $prompt,
+            array(
+                'max_tokens' => $maxTokens,
+                'provider'   => SettingsController::getAiProvider(),
+            )
+        );
 
-        return ([
-            'generated_text' => $result['choices'][0]['text']
-        ]);
+        if (empty($result['success'])) {
+            return false;
+        }
+
+        return array(
+            'generated_text' => $result['text'],
+        );
     }
 
     /**
      * Dispatch a Chat Completions request with optional function-calling definitions.
      *
-     * Validates token weights, message payload shape, and model identifier before calling the OpenAI
-     * Chat API. Diagnostics such as HTTP status, request id, and timing are captured for later
-     * inspection. API errors return the exception message string while setting diagnostics; runtime
+     * Validates token budgets, message payload shape, and model identifier before calling the
+     * internal WordPress AI Client service. Provider-neutral diagnostics are captured for later
+     * inspection. Service errors return a public message string while setting diagnostics; runtime
      * weight or payload validation returns false. Messages should be pre-sanitised and should not
      * include unescaped user HTML. Debug mode bypasses the remote call and returns a deterministic
      * stub response while still clearing diagnostics.
      *
-     * @param array<int, array<string, mixed>> $messages Conversation history in OpenAI format. Each
+     * @param array<int, array<string, mixed>> $messages Legacy conversation history. Each
      *                                                  message should include `role` and `content`
      *                                                  keys with validated values.
      * @param int|string                        $weight   Token weight key mapped to internal max token allowances.
      * @param array<int, array<string, mixed>>  $functions Optional function definitions to expose.
      * @param string|null                       $modelId  Preferred model identifier; falls back to getLatestGptModel() when empty.
-     * @return \OpenAI\Responses\Chat\CreateResponse|object|string|false Response object on success, debug stub when bypassed, false on validation failure, or error message string on API errors.
+     * @return object|string|false Response object on success, debug stub when bypassed, false on validation failure, or public error message on service errors.
      * @since 1.1.0
      *
      * Example:
@@ -685,51 +587,46 @@ class GptController {
             return false;
         }
 
-        if (!is_string($modelId) || $modelId === '') {
-            $modelId = $this->getLatestGptModel();
+        unset($functions);
+
+        $systemInstruction = '';
+        $promptMessages = array();
+
+        foreach ($messages as $message) {
+            if (!is_array($message)) {
+                continue;
+            }
+
+            if (($message['role'] ?? '') === 'system' && is_string($message['content'] ?? null)) {
+                $systemInstruction = (string) $message['content'];
+                continue;
+            }
+
+            $content = isset($message['content']) && is_string($message['content'])
+                ? $message['content']
+                : '';
+            if ($content === '') {
+                continue;
+            }
+
+            $messageParts = array(new MessagePart($content));
+            $promptMessages[] = (($message['role'] ?? '') === 'assistant')
+                ? new ModelMessage($messageParts)
+                : new UserMessage($messageParts);
         }
 
-        $attemptedModelId = $modelId;
-
-        $args = [
-            'model' => $modelId,
-            'messages' => $messages,
-            // 'max_tokens' => $maxTokens,
-            'max_completion_tokens' => $maxTokens,
-            'user' => $this->user,
-            // 'temperature' => self::$config['temperature'],
-        ];
-
-        if (!empty($functions)) {
-            $args['functions'] = $functions;
-        }
+        $attemptedModelId = is_string($modelId) ? $modelId : '';
 
         try {
-            $result = $this->client->chat()->create($args);
-        } catch (ErrorException $exception) {
-            $this->setChatCompletionDiagnostics(
-                $this->buildChatCompletionDiagnostics([
-                    'http_status'   => $exception->getStatusCode(),
-                    'error_type'    => $exception->getErrorType() ?: 'api_error',
-                    'error_code'    => $exception->getErrorCode(),
-                    'error_message' => $exception->getErrorMessage(),
-                    'request_id'    => $exception->response->getHeaderLine('x-request-id'),
-                ],
-                $attemptedModelId,
-                $startTime)
-            );
-
-            return $exception->getMessage();
-        } catch (TransporterException $exception) {
-            $this->setChatCompletionDiagnostics(
-                $this->buildChatCompletionDiagnostics(
-                    $this->buildTransporterDiagnostics($exception),
-                    $attemptedModelId,
-                    $startTime
+            $generation = $this->resolveAiService()->generateText(
+                $promptMessages,
+                array(
+                    'provider'           => SettingsController::getAiProvider(),
+                    'model'              => $attemptedModelId,
+                    'system_instruction' => $systemInstruction,
+                    'max_tokens'         => $maxTokens,
                 )
             );
-
-            return $exception->getMessage();
         } catch (\Throwable $exception) {
             $this->setChatCompletionDiagnostics(
                 $this->buildChatCompletionDiagnostics([
@@ -740,8 +637,43 @@ class GptController {
                 $startTime)
             );
 
-            return $exception->getMessage();
+            return __('The AI request could not be completed.', 'exmoment-author');
         }
+
+        if (empty($generation['success'])) {
+            $diagnostics = isset($generation['diagnostics']) && is_array($generation['diagnostics'])
+                ? $generation['diagnostics']
+                : array();
+            $this->setChatCompletionDiagnostics(
+                $this->buildChatCompletionDiagnostics(
+                    $diagnostics,
+                    $attemptedModelId,
+                    $startTime
+                )
+            );
+
+            return isset($generation['message'])
+                ? (string) $generation['message']
+                : __('The AI request could not be completed.', 'exmoment-author');
+        }
+
+        $message = (object) array(
+            'role'    => 'assistant',
+            'content' => (string) $generation['text'],
+        );
+        $choice = (object) array(
+            'index'         => 0,
+            'message'       => $message,
+            'finish_reason' => 'stop',
+        );
+        $result = (object) array(
+            'id'      => '',
+            'object'  => 'ai_client.text_generation',
+            'created' => time(),
+            'model'   => (string) ($generation['model'] ?? $attemptedModelId),
+            'choices' => array($choice),
+            'usage'   => (object) array(),
+        );
 
         $this->resetChatCompletionDiagnostics();
 
@@ -809,14 +741,15 @@ class GptController {
      */
     private function buildChatCompletionDiagnostics(array $diagnostics, $modelId, $startTime) {
         $normalized = [
-            'http_status'   => null,
-            'error_type'    => 'unknown_error',
-            'error_code'    => null,
-            'error_message' => '',
-            'request_id'    => '',
+            'http_status'     => null,
+            'error_type'      => 'unknown_error',
+            'error_code'      => null,
+            'error_message'   => '',
+            'exception_class' => '',
+            'request_id'      => '',
             'model_attempted' => self::normalizeModelId($modelId),
-            'timing_ms'     => $this->calculateTimingMilliseconds($startTime),
-            'usage'         => [
+            'timing_ms'       => $this->calculateTimingMilliseconds($startTime),
+            'usage'           => [
                 'prompt_tokens'     => null,
                 'completion_tokens' => null,
                 'total_tokens'      => null,
@@ -833,10 +766,16 @@ class GptController {
 
         if (array_key_exists('error_code', $diagnostics) && $diagnostics['error_code'] !== null && $diagnostics['error_code'] !== '') {
             $normalized['error_code'] = $this->sanitizeDiagnosticValue($diagnostics['error_code']);
+        } elseif (!empty($diagnostics['source_error_code'])) {
+            $normalized['error_code'] = $this->sanitizeDiagnosticValue($diagnostics['source_error_code']);
         }
 
         if (!empty($diagnostics['error_message'])) {
             $normalized['error_message'] = $this->sanitizeDiagnosticMessage($diagnostics['error_message']);
+        }
+
+        if (!empty($diagnostics['exception_class'])) {
+            $normalized['exception_class'] = $this->sanitizeDiagnosticValue($diagnostics['exception_class']);
         }
 
         if (!empty($diagnostics['request_id'])) {
@@ -848,32 +787,6 @@ class GptController {
         }
 
         return $normalized;
-    }
-
-    /**
-     * Produce diagnostics for transporter-level exceptions.
-     *
-     * @param TransporterException $exception Transport-level exception instance.
-     * @return array<string, mixed> Sanitised subset of HTTP and request metadata.
-     */
-    private function buildTransporterDiagnostics(TransporterException $exception) {
-        $diagnostics = [
-            'error_type'    => 'transport_error',
-            'error_message' => $exception->getMessage(),
-        ];
-
-        $previous = $exception->getPrevious();
-
-        if ($previous instanceof RequestException) {
-            $response = $previous->getResponse();
-
-            if ($response) {
-                $diagnostics['http_status'] = $response->getStatusCode();
-                $diagnostics['request_id'] = $response->getHeaderLine('x-request-id');
-            }
-        }
-
-        return $diagnostics;
     }
 
     /**
@@ -1036,7 +949,7 @@ class GptController {
     }
 
     /**
-     * Remove cached OpenAI model metadata for both the current request and persistent storage.
+     * Remove cached legacy model metadata for both the current request and persistent storage.
      *
      * @return void
      */
@@ -1117,7 +1030,7 @@ class GptController {
     }
 
     /**
-     * Retrieve the cached OpenAI model list when available.
+     * Retrieve the cached legacy model list when available.
      *
      * @return array<int, array{id: string, name: string}>|null Null when no cache exists yet; otherwise a normalised runtime or transient cache.
      */
@@ -1143,7 +1056,7 @@ class GptController {
     }
 
     /**
-     * Persist the fetched OpenAI model list in the runtime and transient caches.
+     * Persist a fetched model list in runtime and transient caches.
      *
      * @param array<int, array{id: string, name: string}> $models Normalised model list.
      * @return void
@@ -1164,78 +1077,27 @@ class GptController {
     }
 
     /**
-     * Fetch all available OpenAI models via the API client.
+     * Fetch all available text models through the internal AI service.
      *
-     * Performs a remote request to api.openai.com when a client is configured and debug mode is
-     * disabled; otherwise returns an empty array so callers can fall back to cached or static data.
-     *
-     * @return array<int, array{id: string, name: string}> Normalised list of models retrieved from the API or empty on failure.
+     * @return array<int, array{id: string, name: string}> Normalised discovered model list.
      */
     private function fetchAllGptModels() {
-        if (empty($this->client)) {
-            return [];
-        }
-
-        if ($this->isDebugModeEnabled()) {
-            $this->logDebugBypass('model_fetch');
-
-            return [];
-        }
-
-        try {
-            $response = $this->client->models()->list();
-        } catch (\Throwable $exception) {
-            return [];
-        }
-
-        if (!is_object($response) || !isset($response->data) || !is_iterable($response->data)) {
-            return [];
-        }
-
         $models = [];
 
-        foreach ($response->data as $result) {
-            if (!is_object($result)) {
-                continue;
+        foreach ($this->resolveAiService()->discover('text') as $provider) {
+            foreach ($provider['models'] as $model) {
+                $models[$model['id']] = array(
+                    'id'   => $model['id'],
+                    'name' => $model['name'],
+                );
             }
-
-            if (isset($result->object) && 'model' !== $result->object) {
-                continue;
-            }
-
-            $modelId = '';
-
-            if (isset($result->id)) {
-                $modelId = (string) $result->id;
-            }
-
-            $normalizedId = self::normalizeModelId($modelId);
-
-            if ($normalizedId === '') {
-                continue;
-            }
-
-            $modelName = '';
-
-            if (isset($result->name) && is_string($result->name)) {
-                $modelName = $result->name;
-            } elseif (isset($result->displayName) && is_string($result->displayName)) {
-                $modelName = $result->displayName;
-            } elseif (isset($result->display_name) && is_string($result->display_name)) {
-                $modelName = $result->display_name;
-            }
-
-            $models[$normalizedId] = [
-                'id'   => $normalizedId,
-                'name' => $this->sanitizeModelName($modelName, $normalizedId),
-            ];
         }
 
-        return $this->sortModelList($models);
+        return array_values($models);
     }
 
     /**
-     * Produce a fallback model list when OpenAI cannot be reached.
+     * Produce a fallback model list when no compatible model is available.
      *
      * @param array<int, string> $ensureModelIds Additional model identifiers to include.
      * @return array<int, array{id: string, name: string}>
@@ -1257,7 +1119,7 @@ class GptController {
             ];
         }
 
-        return $this->sortModelList($models);
+        return array_values($models);
     }
 
     /**
@@ -1300,7 +1162,7 @@ class GptController {
             ];
         }
 
-        return $this->sortModelList($normalized);
+        return array_values($normalized);
     }
 
     /**
@@ -1311,123 +1173,6 @@ class GptController {
      */
     private function normalizeModelListStructure(array $models) {
         return $this->mergeModelListWithEnsures($models, []);
-    }
-
-    /**
-     * Sort model entries prioritising GPT-5 family identifiers.
-     *
-     * GPT-5 models (ids beginning with `gpt-5`) are listed first. Within the GPT-5
-     * group, numeric variants (for example `gpt-5.2`, `gpt-5.1`, `gpt-5`) are ordered
-     * from newest to oldest by their parsed version number. Named variants that do not
-     * expose a numeric suffix (for example `gpt-5o`, `gpt-5-mini`) fall back to
-     * descending lexicographical ordering by id to maintain deterministic behaviour.
-     * All remaining models are sorted alphabetically (case-insensitive) by their name,
-     * using the id as a tie-breaker.
-     *
-     * @param array<int|string, array{id: string, name: string}> $models Model entries keyed by identifier.
-     * @return array<int, array{id: string, name: string}>
-     */
-    private function sortModelList(array $models) {
-        $list = array_values($models);
-
-        usort(
-            $list,
-            static function ($a, $b) {
-                $idA = (is_array($a) && isset($a['id']) && is_string($a['id'])) ? $a['id'] : '';
-                $idB = (is_array($b) && isset($b['id']) && is_string($b['id'])) ? $b['id'] : '';
-                $nameA = (is_array($a) && isset($a['name']) && is_string($a['name'])) ? $a['name'] : '';
-                $nameB = (is_array($b) && isset($b['name']) && is_string($b['name'])) ? $b['name'] : '';
-
-                $isGpt5A = self::isGpt5Model($idA);
-                $isGpt5B = self::isGpt5Model($idB);
-
-                if ($isGpt5A && !$isGpt5B) {
-                    return -1;
-                }
-
-                if (!$isGpt5A && $isGpt5B) {
-                    return 1;
-                }
-
-                if ($isGpt5A && $isGpt5B) {
-                    $versionA = self::parseGpt5NumericVersion($idA);
-                    $versionB = self::parseGpt5NumericVersion($idB);
-
-                    if (null === $versionA && null !== $versionB) {
-                        return 1;
-                    }
-
-                    if (null !== $versionA && null === $versionB) {
-                        return -1;
-                    }
-
-                    if (null !== $versionA && null !== $versionB) {
-                        $maxLength = max(count($versionA), count($versionB));
-
-                        for ($index = 0; $index < $maxLength; $index++) {
-                            $partA = $versionA[$index] ?? 0;
-                            $partB = $versionB[$index] ?? 0;
-
-                            if ($partA === $partB) {
-                                continue;
-                            }
-
-                            return ($partA > $partB) ? -1 : 1;
-                        }
-                    }
-
-                    return strcmp($idB, $idA);
-                }
-
-                $normalizedNameA = strtolower($nameA);
-                $normalizedNameB = strtolower($nameB);
-
-                if ($normalizedNameA === $normalizedNameB) {
-                    return strcmp($idA, $idB);
-                }
-
-                return strcmp($normalizedNameA, $normalizedNameB);
-            }
-        );
-
-        return $list;
-    }
-
-    /**
-     * Determine whether the provided model identifier is part of the GPT-5 family.
-     *
-     * @param string $modelId Model identifier.
-     * @return bool
-     */
-    private static function isGpt5Model($modelId) {
-        if (!is_string($modelId) || $modelId === '') {
-            return false;
-        }
-
-        return strpos($modelId, 'gpt-5') === 0;
-    }
-
-    /**
-     * Extract numeric GPT-5 version components for comparison.
-     *
-     * @param string $modelId Model identifier.
-     * @return array<int, int>|null
-     */
-    private static function parseGpt5NumericVersion($modelId) {
-        if ('gpt-5' === $modelId) {
-            return [5, 0];
-        }
-
-        if (preg_match('/^gpt-5[\.-]?([0-9]+(?:\.[0-9]+)*)$/', $modelId, $matches) !== 1) {
-            return null;
-        }
-
-        $parts = explode('.', $matches[1]);
-        $parts = array_map('intval', $parts);
-
-        array_unshift($parts, 5);
-
-        return $parts;
     }
 
     /**
@@ -1504,11 +1249,10 @@ class GptController {
     /**
      * Generate and attach an AI-created featured image for a post.
      *
-     * The method builds a concise prompt from the first ~30 words of the post content, requests a
-     * single GPT Image generation using the configured OpenAI client, stores it under the uploads
-     * directory as WebP when supported, and assigns the resulting attachment as the post thumbnail.
-     * When a selected GPT image model is unavailable, the request can retry once with the legacy
-     * `dall-e-3` fallback. Execution is skipped when the post already has a featured image, the
+     * The method builds a concise prompt from the first ~30 words of the post content, requests one
+     * image through the WordPress AI Client, stores it under the uploads directory as WebP when
+     * supported, and assigns the resulting attachment as the post thumbnail. Execution is skipped
+     * when the post already has a featured image, the
      * feature is disabled, or the prompt cannot be derived. Errors are logged in debug mode without
      * interrupting callers.
      *
@@ -1578,15 +1322,8 @@ class GptController {
             ];
         }
 
-        if (!is_object($this->client)) {
-            return [
-                'success' => false,
-                'error' => 'client_unavailable',
-            ];
-        }
-
         $model = apply_filters('exmoau_ai_image_model', $imageSettings['model'], $postId);
-        $model = SettingsController::normalizeAiImageModelSelection($model, $imageSettings['model']);
+        $model = is_string($model) ? trim($model) : '';
         $size = apply_filters(
             'exmoau_ai_image_size',
             $imageSettings['dimensions'],
@@ -1613,76 +1350,15 @@ class GptController {
             )
         );
 
-        $requestArgs = $this->buildImageGenerationRequestArgs($model, $prompt, $size);
-
         try {
-            $this->logImageGenerationDebug(
-                $postId,
-                'Attempting OpenAI image generation request.',
+            $generation = $this->resolveAiService()->generateImage(
+                $prompt,
                 array(
-                    'selected_model' => $model,
-                    'requested_size' => $size,
-                    'request_attempted' => true,
+                    'provider'   => SettingsController::getAiProvider(),
+                    'model'      => $model,
+                    'dimensions' => $size,
                 )
             );
-
-            $response = $this->client->images()->create($requestArgs);
-        } catch (ErrorException $exception) {
-            $this->logImageGenerationDebug(
-                $postId,
-                'OpenAI image generation request failed.',
-                $this->buildImageGenerationErrorContext($exception, $model, false)
-            );
-
-            if ($this->shouldRetryLegacyImageModel($exception, $model)) {
-                $requestArgs = $this->buildImageGenerationRequestArgs('dall-e-3', $prompt, $size);
-
-                $this->logImageGenerationDebug(
-                    $postId,
-                    'Retrying OpenAI image generation with legacy fallback model.',
-                    array(
-                        'selected_model' => $model,
-                        'fallback_model' => 'dall-e-3',
-                        'requested_size' => $size,
-                        'request_attempted' => true,
-                    )
-                );
-
-                try {
-                    $response = $this->client->images()->create($requestArgs);
-                } catch (ErrorException $retryException) {
-                    $this->logImageGenerationDebug(
-                        $postId,
-                        'Legacy fallback image generation request failed.',
-                        $this->buildImageGenerationErrorContext($retryException, 'dall-e-3', true)
-                    );
-
-                    return array(
-                        'success' => false,
-                        'error' => 'api_error',
-                    );
-                }
-            } else {
-                return array(
-                    'success' => false,
-                    'error' => 'api_error',
-                );
-            }
-        } catch (TransporterException $exception) {
-            $this->logImageGenerationDebug(
-                $postId,
-                'OpenAI image transport error encountered.',
-                array(
-                    'selected_model' => $model,
-                    'requested_size' => $size,
-                    'error_message' => $this->sanitizeImageGenerationLogValue($exception->getMessage()),
-                )
-            );
-
-            return [
-                'success' => false,
-                'error' => 'transport_error',
-            ];
         } catch (\Throwable $exception) {
             $this->logImageGenerationDebug(
                 $postId,
@@ -1700,11 +1376,26 @@ class GptController {
             ];
         }
 
-        $normalizedPayload = $this->normalizeGeneratedImagePayload($response);
+        if (empty($generation['success']) || empty($generation['file'])) {
+            return array(
+                'success' => false,
+                'error'   => isset($generation['error']) ? sanitize_key($generation['error']) : 'provider_failure',
+            );
+        }
+
+        $file = $generation['file'];
+        $normalizedPayload = array(
+            'has_data'  => true,
+            'item_count' => 1,
+            'has_url'   => $file->isRemote(),
+            'has_b64'   => $file->isInline(),
+            'type'      => $file->isRemote() ? 'url' : 'b64',
+            'value'     => $file->isRemote() ? (string) $file->getUrl() : (string) $file->getBase64Data(),
+        );
 
         $this->logImageGenerationDebug(
             $postId,
-            'Received OpenAI image generation response.',
+            'Received WordPress AI Client image generation response.',
             array(
                 'selected_model' => $model,
                 'response_contains_data' => $normalizedPayload['has_data'],
@@ -1787,103 +1478,6 @@ class GptController {
             'success' => true,
             'attachment_id' => (int) $attachmentId,
         ];
-    }
-
-    /**
-     * Build the request payload for OpenAI image generation.
-     *
-     * GPT Image models in the current API return base64 payloads without
-     * requiring `response_format`, and sending that parameter now raises an
-     * `unknown_parameter` error. Keep the payload minimal and model-agnostic.
-     *
-     * @param string $model  Selected image model identifier.
-     * @param string $prompt Sanitized prompt text.
-     * @param string $size   Allowed image dimensions preset.
-     * @return array<string, mixed>
-     */
-    private function buildImageGenerationRequestArgs($model, $prompt, $size) {
-        return array(
-            'model' => (string) $model,
-            'prompt' => (string) $prompt,
-            'n' => 1,
-            'size' => (string) $size,
-        );
-    }
-
-    /**
-     * Normalize the first usable generated image item from the OpenAI response.
-     *
-     * Supports both base64-style and URL-style payloads so the storage layer
-     * can handle GPT Image and legacy image responses centrally.
-     *
-     * @param mixed $response Image generation response object.
-     * @return array{has_data: bool, item_count: int, has_url: bool, has_b64: bool, type: string, value: string}
-     */
-    private function normalizeGeneratedImagePayload($response) {
-        $normalized = array(
-            'has_data' => false,
-            'item_count' => 0,
-            'has_url' => false,
-            'has_b64' => false,
-            'type' => '',
-            'value' => '',
-        );
-
-        if (!is_object($response) || !isset($response->data) || !is_array($response->data)) {
-            return $normalized;
-        }
-
-        $normalized['item_count'] = count($response->data);
-
-        if (empty($response->data[0]) || !is_object($response->data[0])) {
-            return $normalized;
-        }
-
-        $first = $response->data[0];
-        $normalized['has_data'] = true;
-
-        if (isset($first->url) && is_string($first->url)) {
-            $url = trim($first->url);
-
-            if ($url !== '') {
-                $normalized['has_url'] = true;
-                $normalized['type'] = 'url';
-                $normalized['value'] = $url;
-            }
-        }
-
-        if (isset($first->b64_json) && is_string($first->b64_json)) {
-            $b64 = trim($first->b64_json);
-
-            if ($b64 !== '') {
-                $normalized['has_b64'] = true;
-
-                if ($normalized['type'] === '') {
-                    $normalized['type'] = 'b64';
-                    $normalized['value'] = $b64;
-                }
-            }
-        }
-
-        return $normalized;
-    }
-
-    /**
-     * Build a sanitized logging context for OpenAI image request failures.
-     *
-     * @param ErrorException $exception     API exception raised by the OpenAI client.
-     * @param string         $model         Model used for the failed request.
-     * @param bool           $usedFallback  Whether this context belongs to the legacy fallback attempt.
-     * @return array<string, mixed>
-     */
-    private function buildImageGenerationErrorContext(ErrorException $exception, $model, $usedFallback) {
-        return array(
-            'selected_model' => (string) $model,
-            'used_legacy_fallback' => ($usedFallback === true),
-            'error_code' => $this->sanitizeImageGenerationLogValue($exception->getErrorCode()),
-            'error_type' => $this->sanitizeImageGenerationLogValue($exception->getErrorType()),
-            'error_message' => $this->sanitizeImageGenerationLogValue($exception->getErrorMessage()),
-        );
     }
 
     /**
@@ -1979,45 +1573,6 @@ class GptController {
         }
 
         return sanitize_text_field(wp_json_encode($value));
-    }
-
-    /**
-     * Determine whether a model-specific image generation error should retry with the legacy fallback.
-     *
-     * @param ErrorException $exception OpenAI API exception thrown by the image request.
-     * @param string         $model     Model attempted for the original request.
-     * @return bool
-     */
-    private function shouldRetryLegacyImageModel(ErrorException $exception, $model) {
-        if (!is_string($model) || $model === 'dall-e-3') {
-            return false;
-        }
-
-        $errorCode = strtolower((string) $exception->getErrorCode());
-        $errorType = strtolower((string) $exception->getErrorType());
-        $message = strtolower((string) $exception->getErrorMessage());
-
-        $retrySignals = array(
-            'model_not_found',
-            'unsupported_model',
-            'invalid_model',
-        );
-
-        foreach ($retrySignals as $signal) {
-            if ($signal === $errorCode || $signal === $errorType || false !== strpos($message, $signal)) {
-                return true;
-            }
-        }
-
-        return (
-            false !== strpos($message, 'model')
-            && (
-                false !== strpos($message, 'not found')
-                || false !== strpos($message, 'unsupported')
-                || false !== strpos($message, 'not available')
-                || false !== strpos($message, 'does not exist')
-            )
-        );
     }
 
     /**
@@ -2213,13 +1768,13 @@ class GptController {
     }
 
     /**
-     * Generate OpenAI function-calling manifests from loaded controllers.
+     * Generate legacy function-calling manifests from loaded controllers.
      *
      * Each controller contributes its description and JSON Schema parameters. The resulting array can
      * be passed directly to chatCompletionCreate(). Controllers are trusted code loaded from the
      * filesystem and should ensure their parameter schemas enforce strict validation when executed.
      *
-     * @return array<int, array<string, mixed>> List of function definitions compatible with OpenAI.
+     * @return array<int, array<string, mixed>> List of legacy function definitions.
      * @since 1.1.0
      *
      * Example:
@@ -2276,15 +1831,42 @@ class GptController {
     }
 
     /**
+     * Resolve the single internal AI service from the core module container.
+     *
+     * @return AiService
+     */
+    private function resolveAiService() {
+        if ($this->aiService instanceof AiService) {
+            return $this->aiService;
+        }
+
+        $core = ExMomentAuthorCoreSystem::getInstance();
+        $service = $core->getModule('AiService');
+
+        if (!($service instanceof AiService) && method_exists($core, 'autoload')) {
+            $core->autoload();
+            $service = $core->getModule('AiService');
+        }
+
+        if (!($service instanceof AiService)) {
+            $service = new AiService();
+        }
+
+        $this->aiService = $service;
+
+        return $this->aiService;
+    }
+
+    /**
      * Execute a GPT function controller using decoded JSON arguments.
      *
-     * Accepts a trusted controller instance and a JSON-encoded argument map supplied by OpenAI. The
+     * Accepts a trusted controller instance and a JSON-encoded argument map supplied by an AI model. The
      * JSON payload is decoded without additional sanitisation, so upstream code must validate content
      * before persistence or rendering. Controllers are expected to perform capability and input
      * checks internally and may return \WP_Error on failure.
      *
      * @param object $controller    Controller instance exposing a work() method.
-     * @param string $argumentsJson JSON-encoded argument payload provided by OpenAI.
+     * @param string $argumentsJson JSON-encoded argument payload provided by an AI model.
      * @return mixed|\WP_Error Controller return value, often an array, string result, or WP_Error from work().
      * @since 1.1.0
      *

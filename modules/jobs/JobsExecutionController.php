@@ -991,21 +991,13 @@ class JobsExecutionController {
         }
         unset($encodedMessages);
 
-        $debugModeEnabled = SettingsController::isGptDebugModeEnabled();
-        $apiKey = SettingsController::getOption('openai_api_key');
-        $apiKey = is_string($apiKey) ? trim($apiKey) : '';
-        if ($apiKey === '' && !$debugModeEnabled) {
-            $result['error'] = esc_html__('Configure the OpenAI API key before running jobs.', 'exmoment-author');
-            return $result;
-        }
-
-        $controller = $this->instantiateGptController($apiKey);
+        $controller = $this->instantiateGptController();
         if (!($controller instanceof GptController)) {
             $result['error'] = esc_html__('Unable to communicate with the AI model at this time.', 'exmoment-author');
             return $result;
         }
 
-        $weightKey = SettingsController::getOpenAiWeightKey();
+        $weightKey = SettingsController::getAiTokenBudgetKey();
 
         try {
             $response = $controller->chatCompletionCreate($messages, $weightKey, [], $model);
@@ -1018,14 +1010,15 @@ class JobsExecutionController {
         $diagnostics = $controller->getLastChatCompletionDiagnostics();
         if (is_string($response)) {
             if (is_array($diagnostics)) {
+                $encodedDiagnostics = wp_json_encode($diagnostics);
                 $this->logDebug(
                     'GPT API error for job %d (model %s): %s',
                     $jobId,
                     $model,
-                    isset($diagnostics['error_message']) ? (string) $diagnostics['error_message'] : $response
+                    is_string($encodedDiagnostics) ? $encodedDiagnostics : $response
                 );
             }
-            $result['error'] = esc_html__('The AI service rejected the request. Please review the configuration.', 'exmoment-author');
+            $result['error'] = esc_html($response);
             return $result;
         }
 
@@ -2156,18 +2149,11 @@ runcated: bool, removed_invalid: array<int, string>}
     }
 
     /**
-     * Initialise the GPT controller with the provided API key if available.
+     * Initialise the GPT compatibility controller.
      *
-     * @param string|null $apiKey OpenAI API key from settings; may be empty when debug mode is active.
      * @return GptController|null
      */
-    private function instantiateGptController($apiKey) {
-        $apiKey = (is_string($apiKey) ? trim($apiKey) : '');
-
-        if ($apiKey === '') {
-            return null;
-        }
-
+    private function instantiateGptController() {
         $core = ExMomentAuthorCoreSystem::getInstance();
 
         $controller = $core->getModule('GptController');
@@ -2181,16 +2167,6 @@ runcated: bool, removed_invalid: array<int, string>}
             $this->logDebug('GPT module is offline; unable to initialise job execution.');
 
             return null;
-        }
-
-        if (method_exists($controller, 'setApiKey')) {
-            $configured = $controller->setApiKey($apiKey);
-
-            if (!$configured) {
-                $this->logDebug('GPT module rejected the supplied API key during job execution.');
-
-                return null;
-            }
         }
 
         return $controller;

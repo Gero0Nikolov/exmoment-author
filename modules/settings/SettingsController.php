@@ -5,6 +5,7 @@ namespace ExMomentAuthor\Modules\Settings;
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 use ExMomentAuthor\Core\ExMomentAuthorCoreSystem;
+use ExMomentAuthor\Modules\Ai\AiService;
 use ExMomentAuthor\Modules\Gpt\GptController;
 use ExMomentAuthor\Modules\Log\LogService;
 
@@ -61,17 +62,17 @@ class SettingsController {
     /**
      * Default AI model selection when no value has been stored.
      */
-    private const DEFAULT_AI_MODEL = 'gpt-5';
+    private const DEFAULT_AI_MODEL = '';
 
     /**
-     * Default weight key used for OpenAI requests when configuration is missing or invalid.
+     * Default output token budget key when configuration is missing or invalid.
      */
-    private const DEFAULT_OPENAI_WEIGHT_KEY = '2aq';
+    private const DEFAULT_AI_TOKEN_BUDGET_KEY = '2aq';
 
     /**
      * Default AI image model identifier when no value has been stored.
      */
-    private const DEFAULT_AI_IMAGE_MODEL = 'gpt-image-2';
+    private const DEFAULT_AI_IMAGE_MODEL = '';
 
     /**
      * Default state for AI image generation toggle.
@@ -182,11 +183,11 @@ class SettingsController {
     private static $availableAiModelsCache = [];
 
     /**
-     * Cached OpenAI weight key for the current request.
+     * Cached AI output token budget key for the current request.
      *
      * @var string|null
      */
-    private static $cachedOpenAiWeightKey = null;
+    private static $cachedAiTokenBudgetKey = null;
 
     /**
      * Tracks sanitized values for the current settings submission.
@@ -206,7 +207,6 @@ class SettingsController {
         'model_changed' => false,
         'augmentation_attempted' => false,
         'augmentation_error_added' => false,
-        'augmentation_missing_key_added' => false,
         'augmentation_diagnostics' => null,
     ];
 
@@ -215,33 +215,7 @@ class SettingsController {
      *
      * @var string[]
      */
-    private const AI_IMAGE_MODEL_REGISTRY = array(
-        'gpt-image-2'      => array(
-            'label'       => 'GPT Image 2 - Best quality',
-            'description' => 'Default GPT Image model for featured image generation.',
-            'legacy'      => false,
-        ),
-        'gpt-image-1.5'    => array(
-            'label'       => 'GPT Image 1.5 - High quality',
-            'description' => 'High-quality GPT Image variant kept for compatibility.',
-            'legacy'      => false,
-        ),
-        'gpt-image-1'      => array(
-            'label'       => 'GPT Image 1 - Legacy GPT Image',
-            'description' => 'Earlier GPT Image generation model.',
-            'legacy'      => false,
-        ),
-        'gpt-image-1-mini' => array(
-            'label'       => 'GPT Image 1 Mini - Low-cost/dev',
-            'description' => 'Lower-cost GPT Image variant for development and low-volume usage.',
-            'legacy'      => false,
-        ),
-        'dall-e-3'         => array(
-            'label'       => 'DALL·E 3 - Legacy fallback',
-            'description' => 'Legacy fallback image model retained for compatibility.',
-            'legacy'      => true,
-        ),
-    );
+    private const AI_IMAGE_MODEL_REGISTRY = array();
 
     /**
      * Instantiate the controller and autoload Settings sub-controllers.
@@ -354,39 +328,37 @@ class SettingsController {
      * @return void
      */
     public static function register() {
-        $openAiOptionName = self::getOptionName('openai_api_key');
+        $providerOptionName = self::getOptionName('ai_provider');
 
         register_setting(
             self::SETTINGS_GROUP,
-            $openAiOptionName,
-            [
+            $providerOptionName,
+            array(
                 'type'              => 'string',
-                'sanitize_callback' => [self::class, 'sanitizeOpenAiApiKey'],
+                'sanitize_callback' => array(self::class, 'sanitizeAiProvider'),
                 'default'           => '',
                 'capability'        => 'manage_options',
-            ]
+            )
         );
 
-        self::registerOptionCacheHooks($openAiOptionName);
-        self::registerModelCacheInvalidationHooks($openAiOptionName);
-        self::registerAugmentedPromptCacheInvalidationHooks($openAiOptionName);
-        self::registerModelCacheInvalidationHooks('openai_api_key');
-        self::registerAugmentedPromptCacheInvalidationHooks('openai_api_key');
+        self::registerOptionCacheHooks($providerOptionName);
+        self::registerModelCacheInvalidationHooks($providerOptionName);
+        self::registerAugmentedPromptCacheInvalidationHooks($providerOptionName);
 
-        $openAiWeightKeyOptionName = self::getOptionName('openai_weight_key');
+        $tokenBudgetOptionName = self::getOptionName('ai_token_budget');
 
         register_setting(
             self::SETTINGS_GROUP,
-            $openAiWeightKeyOptionName,
-            [
+            $tokenBudgetOptionName,
+            array(
                 'type'              => 'string',
-                'sanitize_callback' => [self::class, 'sanitizeOpenAiWeightKey'],
-                'default'           => self::DEFAULT_OPENAI_WEIGHT_KEY,
+                'sanitize_callback' => array(self::class, 'sanitizeAiTokenBudget'),
+                'default'           => self::DEFAULT_AI_TOKEN_BUDGET_KEY,
                 'capability'        => 'manage_options',
-            ]
+            )
         );
 
-        self::registerOptionCacheHooks($openAiWeightKeyOptionName);
+        self::registerOptionCacheHooks($tokenBudgetOptionName);
 
         $gptDebugModeOptionName = self::getOptionName('gpt_debug_mode');
 
@@ -586,7 +558,7 @@ class SettingsController {
         self::registerOptionCacheHooks($mixtureUniquenessOptionName);
 
         add_settings_section(
-            'exmoau_settings_section_openai',
+            'exmoau_settings_section_ai_client',
             '',
             '__return_false',
             self::PAGE_SLUG
@@ -704,7 +676,7 @@ class SettingsController {
     }
 
     /**
-     * Retrieve the configured OpenAI weight key.
+     * Retrieve the configured AI output token budget key.
      *
      * Falls back to the default weight key when the stored value is empty or
      * no longer present in the GPT weights map. The result is cached for the
@@ -712,13 +684,13 @@ class SettingsController {
      *
      * @return string
      */
-    public static function getOpenAiWeightKey() {
-        if (is_string(self::$cachedOpenAiWeightKey)) {
-            return self::$cachedOpenAiWeightKey;
+    public static function getAiTokenBudgetKey() {
+        if (is_string(self::$cachedAiTokenBudgetKey)) {
+            return self::$cachedAiTokenBudgetKey;
         }
 
         $weightsMap = GptController::getWeightsMap();
-        $weightKey = self::getOption('openai_weight_key', self::DEFAULT_OPENAI_WEIGHT_KEY);
+        $weightKey = self::getOption('ai_token_budget', self::DEFAULT_AI_TOKEN_BUDGET_KEY);
 
         if (!is_string($weightKey)) {
             if (is_scalar($weightKey)) {
@@ -733,7 +705,7 @@ class SettingsController {
         $weightKey = $rawWeightKey;
 
         if ($weightKey === '' || !array_key_exists($weightKey, $weightsMap)) {
-            $weightKey = self::DEFAULT_OPENAI_WEIGHT_KEY;
+            $weightKey = self::DEFAULT_AI_TOKEN_BUDGET_KEY;
 
             if (
                 function_exists('add_settings_error')
@@ -743,25 +715,65 @@ class SettingsController {
             ) {
                 add_settings_error(
                     self::SETTINGS_GROUP,
-                    'exmoau_openai_weight_key_missing',
-                    esc_html__('The stored OpenAI weight preset is no longer available. Defaulting to 2aq.', 'exmoment-author'),
+                    'exmoau_ai_token_budget_missing',
+                    esc_html__('The stored AI token budget is no longer available. The default budget is being used.', 'exmoment-author'),
                     'error'
                 );
             }
         }
 
-        self::$cachedOpenAiWeightKey = $weightKey;
+        self::$cachedAiTokenBudgetKey = $weightKey;
 
         return $weightKey;
     }
 
     /**
-     * Retrieve the default OpenAI weight key used as a fallback.
+     * Retrieve the default AI output token budget key used as a fallback.
      *
      * @return string
      */
-    public static function getDefaultOpenAiWeightKey() {
-        return self::DEFAULT_OPENAI_WEIGHT_KEY;
+    public static function getDefaultAiTokenBudgetKey() {
+        return self::DEFAULT_AI_TOKEN_BUDGET_KEY;
+    }
+
+    /**
+     * Retrieve the optional provider preference. An empty value means automatic selection.
+     *
+     * @return string
+     */
+    public static function getAiProvider() {
+        $provider = self::getOption('ai_provider', '');
+
+        return is_string($provider) ? sanitize_key($provider) : '';
+    }
+
+    /**
+     * Retrieve provider-aware AI connection status for the settings UI.
+     *
+     * @param string $capability Either text or image.
+     * @return array<string, mixed>
+     */
+    public static function getAiConnectionStatus($capability = 'text') {
+        $service = self::getAiServiceInstance();
+
+        if (!($service instanceof AiService)) {
+            return array(
+                'client_available'    => false,
+                'providers'           => array(),
+                'connection_status'   => 'client_unavailable',
+                'selected_provider'   => '',
+                'selected_model'      => '',
+            );
+        }
+
+        if ($capability === 'image') {
+            $model = self::getAiImageModel();
+        } else {
+            $configuration = self::getEffectiveAiConfiguration();
+            $model = isset($configuration['model']) ? (string) $configuration['model'] : '';
+        }
+
+        return $service->getStatus(self::getAiProvider(), $model, $capability);
     }
 
     /**
@@ -917,7 +929,24 @@ class SettingsController {
      * @return array<string, array{label: string, description: string, legacy: bool}>
      */
     public static function getAiImageModelRegistry() {
-        return self::AI_IMAGE_MODEL_REGISTRY;
+        $registry = array();
+        $service = self::getAiServiceInstance();
+
+        if (!($service instanceof AiService)) {
+            return $registry;
+        }
+
+        foreach ($service->discover('image') as $provider) {
+            foreach ($provider['models'] as $model) {
+                $registry[$model['id']] = array(
+                    'label'       => sprintf('%s — %s', $model['name'], $provider['name']),
+                    'description' => sprintf('%s / %s', $provider['id'], $model['id']),
+                    'legacy'      => false,
+                );
+            }
+        }
+
+        return $registry;
     }
 
     /**
@@ -926,7 +955,7 @@ class SettingsController {
      * @return string[]
      */
     public static function getAllowedAiImageModels() {
-        return array_keys(self::AI_IMAGE_MODEL_REGISTRY);
+        return array_keys(self::getAiImageModelRegistry());
     }
 
     /**
@@ -941,7 +970,7 @@ class SettingsController {
         $fallback = (is_string($fallback) ? strtolower(trim($fallback)) : self::DEFAULT_AI_IMAGE_MODEL);
 
         if (!in_array($fallback, $allowedModels, true)) {
-            $fallback = self::DEFAULT_AI_IMAGE_MODEL;
+            $fallback = isset($allowedModels[0]) ? $allowedModels[0] : '';
         }
 
         if (is_array($value)) {
@@ -950,9 +979,80 @@ class SettingsController {
 
         $value = (is_string($value) ? strtolower(trim($value)) : '');
 
+        if ($value === '') {
+            return '';
+        }
+
         if (!in_array($value, $allowedModels, true)) {
             return $fallback;
         }
+
+        return $value;
+    }
+
+    /**
+     * Sanitize the optional provider preference.
+     *
+     * @param mixed $value Submitted provider identifier.
+     * @return string
+     */
+    public static function sanitizeAiProvider($value) {
+        if (!current_user_can('manage_options')) {
+            return self::getAiProvider();
+        }
+
+        $value = is_string($value) ? sanitize_key($value) : '';
+        if ($value === '') {
+            return '';
+        }
+
+        $service = self::getAiServiceInstance();
+        if (!($service instanceof AiService)) {
+            return '';
+        }
+
+        foreach ($service->discover('text') as $provider) {
+            if ($provider['id'] === $value) {
+                return $value;
+            }
+        }
+
+        add_settings_error(
+            self::SETTINGS_GROUP,
+            'exmoau_ai_provider_invalid',
+            esc_html__('Choose an installed AI provider or automatic selection.', 'exmoment-author'),
+            'error'
+        );
+
+        return '';
+    }
+
+    /**
+     * Sanitize the provider-neutral output token budget preset.
+     *
+     * @param mixed $value Submitted preset key.
+     * @return string
+     */
+    public static function sanitizeAiTokenBudget($value) {
+        if (!current_user_can('manage_options')) {
+            return self::getAiTokenBudgetKey();
+        }
+
+        $value = is_scalar($value) ? sanitize_text_field((string) $value) : '';
+        $value = trim($value);
+
+        if (!array_key_exists($value, GptController::getWeightsMap())) {
+            add_settings_error(
+                self::SETTINGS_GROUP,
+                'exmoau_ai_token_budget_invalid',
+                esc_html__('Choose a valid AI output token budget.', 'exmoment-author'),
+                'error'
+            );
+
+            return self::DEFAULT_AI_TOKEN_BUDGET_KEY;
+        }
+
+        self::$cachedAiTokenBudgetKey = $value;
 
         return $value;
     }
@@ -1174,117 +1274,6 @@ class SettingsController {
         $sanitized = str_replace(["\r\n", "\r"], "\n", $sanitized);
 
         return trim($sanitized);
-    }
-
-    /**
-     * Sanitize the OpenAI API key before persisting it to the database.
-     *
-     * Denies updates from users without the manage_options capability,
-     * returning the previously stored key. Otherwise trims whitespace,
-     * normalizes scalar input, and strips only ASCII control characters.
-     *
-     * @param mixed $value Raw option value from the request.
-     * @return string Sanitized API key suitable for storage.
-     */
-    public static function sanitizeOpenAiApiKey($value) {
-        $previousValue = self::getOption('openai_api_key', '');
-
-        if (!current_user_can('manage_options')) {
-            add_settings_error(
-                self::SETTINGS_GROUP,
-                'exmoau_openai_api_key_capability',
-                esc_html__('You are not allowed to update the Open AI API Key.', 'exmoment-author'),
-                'error'
-            );
-
-            return $previousValue;
-        }
-
-        if (!is_scalar($value)) {
-            add_settings_error(
-                self::SETTINGS_GROUP,
-                'exmoau_openai_api_key_invalid',
-                esc_html__('Invalid API key value.', 'exmoment-author'),
-                'error'
-            );
-
-            return $previousValue;
-        }
-
-        $value = trim((string) $value);
-        $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
-
-        if (!is_string($value)) {
-            add_settings_error(
-                self::SETTINGS_GROUP,
-                'exmoau_openai_api_key_invalid',
-                esc_html__('Invalid API key value.', 'exmoment-author'),
-                'error'
-            );
-
-            return $previousValue;
-        }
-
-        return $value;
-    }
-
-    /**
-     * Sanitize the OpenAI weight key before persisting it.
-     *
-     * Validates the submitted value against the GPT weights map, falls back to
-     * the default when invalid or empty, and restores the previous value when
-     * the current user lacks permission to update the setting.
-     *
-     * @param mixed $value Raw option value from the request.
-     * @return string Sanitized weight key suitable for storage.
-     */
-    public static function sanitizeOpenAiWeightKey($value) {
-        $previousValue = self::getOpenAiWeightKey();
-
-        if (!current_user_can('manage_options')) {
-            add_settings_error(
-                self::SETTINGS_GROUP,
-                'exmoau_openai_weight_key_capability',
-                esc_html__('You are not allowed to update the OpenAI weight preset.', 'exmoment-author'),
-                'error'
-            );
-
-            return $previousValue;
-        }
-
-        if (!is_string($value)) {
-            if (is_scalar($value)) {
-                $value = (string) $value;
-            } else {
-                $value = '';
-            }
-        }
-
-        $value = sanitize_text_field($value);
-        $value = trim($value);
-
-        $weightsMap = GptController::getWeightsMap();
-        $defaultWeightKey = self::DEFAULT_OPENAI_WEIGHT_KEY;
-        $hasPreviousValue = (is_string($previousValue) && $previousValue !== '');
-        $fallbackWeightKey = $hasPreviousValue ? $previousValue : $defaultWeightKey;
-        $wasEmpty = ($value === '');
-        $length = function_exists('mb_strlen') ? mb_strlen($value) : strlen($value);
-        $tooLong = ($length > 64);
-
-        if ($wasEmpty || $tooLong || !array_key_exists($value, $weightsMap)) {
-            add_settings_error(
-                self::SETTINGS_GROUP,
-                'exmoau_openai_weight_key_invalid',
-                esc_html__('Choose a valid OpenAI weight preset.', 'exmoment-author'),
-                'error'
-            );
-
-            $value = $fallbackWeightKey;
-        }
-
-        self::$cachedOpenAiWeightKey = $value;
-
-        return $value;
     }
 
     /**
@@ -1750,59 +1739,17 @@ class SettingsController {
     }
 
     /**
-     * Bootstrap the GPT controller used to query OpenAI models when possible.
-     *
-     * @param string|null $apiKey API key to authenticate with OpenAI.
+     * Bootstrap the compatibility controller used to query discovered AI models.
      * @return GptController|null
      */
-    private static function bootstrapGptController($apiKey = null) {
-        if (!is_string($apiKey) || $apiKey === '') {
-            $apiKey = self::getOpenAiApiKey();
-        }
-
-        if ($apiKey === '') {
-            return null;
-        }
-
+    private static function bootstrapGptController() {
         $controller = self::getGptControllerInstance('bootstrap');
 
         if (!($controller instanceof GptController)) {
             return null;
         }
 
-        if (method_exists($controller, 'setApiKey')) {
-            $configured = $controller->setApiKey($apiKey);
-
-            if (!$configured) {
-                self::logGptModuleIssue('bootstrap', 'Unable to configure GPT controller with the provided API key.');
-
-                return null;
-            }
-        }
-
         return $controller;
-    }
-
-    /**
-     * Retrieve the stored OpenAI API key required for augmentation requests.
-     *
-     * @return string Sanitized API key or an empty string when not configured.
-     */
-    private static function getOpenAiApiKey() {
-        $apiKey = self::getOption('openai_api_key');
-
-        if (!is_string($apiKey)) {
-            return '';
-        }
-
-        $apiKey = trim($apiKey);
-        $apiKey = preg_replace('/[\x00-\x1F\x7F]/', '', $apiKey);
-
-        if (!is_string($apiKey)) {
-            return '';
-        }
-
-        return $apiKey;
     }
 
     /**
@@ -2108,8 +2055,8 @@ class SettingsController {
      */
     private static function rebuildSettingsCache() {
         $trackedOptions = [
-            'openai_api_key'              => '',
-            'openai_weight_key'           => self::DEFAULT_OPENAI_WEIGHT_KEY,
+            'ai_provider'                 => '',
+            'ai_token_budget'             => self::DEFAULT_AI_TOKEN_BUDGET_KEY,
             'gpt_debug_mode'              => '0',
             'ai_behaviour_mode'           => self::DEFAULT_AI_BEHAVIOUR_MODE,
             'augmented_user_system_prompt' => '',
@@ -2201,11 +2148,10 @@ class SettingsController {
     }
 
     /**
-     * Invalidate the cached OpenAI model list when credentials change.
+     * Invalidate cached legacy model metadata when provider preferences change.
      *
      * Attaches the GPT controller's cache flush callback to option mutation
-     * hooks so remote model lookups refresh whenever API credentials or
-     * behaviour selections change.
+     * hooks so model discovery refreshes whenever provider or behaviour selections change.
      *
      * @param string $optionName Fully qualified option name.
      * @return void
@@ -2264,6 +2210,28 @@ class SettingsController {
         }
 
         return $controller;
+    }
+
+    /**
+     * Retrieve the internal AI service from the core module container.
+     *
+     * @return AiService|null
+     */
+    private static function getAiServiceInstance() {
+        $core = ExMomentAuthorCoreSystem::getInstance();
+
+        if (!($core instanceof ExMomentAuthorCoreSystem)) {
+            return null;
+        }
+
+        $service = $core->getModule('AiService');
+
+        if (!($service instanceof AiService) && method_exists($core, 'autoload')) {
+            $core->autoload();
+            $service = $core->getModule('AiService');
+        }
+
+        return ($service instanceof AiService) ? $service : null;
     }
 
     /**
@@ -2499,7 +2467,6 @@ class SettingsController {
             'model_changed' => false,
             'augmentation_attempted' => false,
             'augmentation_error_added' => false,
-            'augmentation_missing_key_added' => false,
             'augmentation_diagnostics' => null,
         ];
     }
@@ -2632,20 +2599,7 @@ class SettingsController {
 
         self::deleteAugmentedPromptTransient();
 
-        $apiKey = self::getOpenAiApiKey();
-
-        if ($apiKey === '') {
-            self::setAugmentationDiagnostics([], $model, 'missing_api_key', [
-                'error_message' => 'OpenAI API key not configured.',
-            ]);
-            self::handleAugmentationFailureTelemetry($prompt, $model);
-            self::addAugmentationMissingKeyNotice();
-            self::persistAugmentedPrompt($prompt, $model, $prompt, 'fallback');
-
-            return;
-        }
-
-        $responseJson = self::performPromptAugmentation($prompt, $model, $apiKey);
+        $responseJson = self::performPromptAugmentation($prompt, $model);
         $response = self::decodeAugmentationResponse($responseJson);
 
         if (!is_array($response)) {
@@ -2686,13 +2640,11 @@ class SettingsController {
      *
      * @param string $prompt Original user-provided prompt.
      * @param string $model  Validated model identifier.
-     * @param string $apiKey OpenAI API key retrieved from configuration.
      * @return string JSON-encoded response payload.
      */
-    private static function performPromptAugmentation($prompt, $model, $apiKey) {
+    private static function performPromptAugmentation($prompt, $model) {
         $prompt = (string) $prompt;
         $model = self::normalizeModelId($model);
-        $apiKey = (is_string($apiKey) ? trim($apiKey) : '');
 
         if ($prompt === '') {
             self::clearAugmentationDiagnostics();
@@ -2700,15 +2652,7 @@ class SettingsController {
             return self::formatAugmentationResponse(true, '');
         }
 
-        if ($apiKey === '') {
-            self::setAugmentationDiagnostics([], $model, 'missing_api_key', [
-                'error_message' => 'OpenAI API key not configured.',
-            ]);
-
-            return self::formatAugmentationResponse(false, $prompt);
-        }
-
-        $controller = self::bootstrapGptController($apiKey);
+        $controller = self::bootstrapGptController();
 
         if (!($controller instanceof GptController)) {
             self::setAugmentationDiagnostics([], $model, 'controller_bootstrap_failure', [
@@ -2729,7 +2673,7 @@ class SettingsController {
             ],
         ];
 
-        $weightKey = self::getOpenAiWeightKey();
+        $weightKey = self::getAiTokenBudgetKey();
 
         try {
             $response = $controller->chatCompletionCreate(
@@ -3039,7 +2983,7 @@ class SettingsController {
     }
 
     /**
-     * Sanitize OpenAI request identifiers extracted from responses.
+     * Sanitize provider request identifiers extracted from responses.
      *
      * @param mixed $requestId Raw request identifier.
      * @return string
@@ -3666,26 +3610,6 @@ class SettingsController {
         );
 
         self::$submissionState['augmentation_error_added'] = true;
-    }
-
-    /**
-     * Display an admin notice when the OpenAI API key has not been configured.
-     *
-     * @return void
-     */
-    private static function addAugmentationMissingKeyNotice() {
-        if (true === (self::$submissionState['augmentation_missing_key_added'] ?? false)) {
-            return;
-        }
-
-        add_settings_error(
-            self::SETTINGS_GROUP,
-            'exmoau_augmented_prompt_missing_api_key',
-            esc_html__('OpenAI API key not configured. Augmentation skipped.', 'exmoment-author'),
-            'error'
-        );
-
-        self::$submissionState['augmentation_missing_key_added'] = true;
     }
 
     /**

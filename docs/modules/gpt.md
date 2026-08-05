@@ -2,21 +2,21 @@
 
 ## Scope
 
-`modules/gpt/GptController.php` contains GPT integrations used by settings and jobs flows.
+`modules/gpt/GptController.php` preserves the generation interface used by settings and jobs flows. It delegates every AI request to `AiService`.
 
 ## Responsibilities
 
-- Initialize OpenAI client from configured API credentials.
-- Provide completion/chat methods for generation workflows.
-- Resolve text and image model selections, including the allowlisted GPT Image registry.
+- Preserve completion/chat response shapes used by existing workflows.
+- Convert legacy message arrays into WordPress AI Client message parts.
+- Resolve text and image model preferences from dynamic discovery.
 - Coordinate structured logging for GPT bypass/error/debug paths.
-- Generate featured images through the OpenAI Images API with a guarded legacy fallback to `dall-e-3` when a selected GPT image model is unavailable.
-- Build image-generation requests without the deprecated `response_format` parameter and normalize either base64 or URL image payloads before saving them to WordPress media.
+- Save generated inline or remote image files to WordPress media.
 
 ## Integration Points
 
 - Called by job execution workflows.
 - Used by settings flows for model handling and cache flush actions.
+- Does not own credentials, endpoints, provider payloads, or provider-specific errors.
 
 ## Key File
 

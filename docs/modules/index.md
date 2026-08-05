@@ -9,7 +9,8 @@
 
 ## Documents
 
-- [GPT](gpt.md) - GPT client integration and generation orchestration.
+- [AI Service](ai-service.md) - Provider discovery and the single WordPress AI Client boundary.
+- [GPT](gpt.md) - Generation compatibility and editorial orchestration.
 - [Cache Module](cache-module.md) - Save-post recache flow.
 - [Help Module](help-module.md) - Help pages and admin bar shortcuts.
 - [Jobs Module](jobs-module.md) - Job post type, metadata, scheduling, execution.

@@ -2,7 +2,7 @@
 Contributors: exmoment
 Donate link: https://author.exmoment.com
 Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, seo-content
-Requires at least: 6.0
+Requires at least: 7.0
 Requires PHP: 8.3
 Tested up to: 7.0
 Stable tag: 1.2.0
@@ -14,27 +14,26 @@ AI-assisted content authoring, scheduling, and editorial automation for WordPres
 == Description ==
 ExMoment Author is an intelligent content automation system by **ExMoment Ltd**.
 
-It integrates OpenAI models to help you draft, optimize, and schedule posts, while keeping full control inside the WordPress admin.
+It uses the native WordPress AI Client to help you draft, optimize, and schedule posts with any compatible configured provider.
 
 Key features:
 - AI-assisted article drafting using your prompts
 - Behaviour modes: Autonomous, Augmented, Manual
 - Job Scheduler via the plugin’s private Jobs custom post type (admin-only)
 - Library module for reusable content bundles (import, preview, manage)
-- Settings dashboard for API keys, model selection, and diagnostics
+- Provider-aware settings dashboard for connection status, model selection, and diagnostics
 
 Documentation and examples: <a href="https://github.com/Gero0Nikolov/exmoment-author">https://github.com/Gero0Nikolov/exmoment-author</a>
 
 == External Services ==
-ExMoment Author uses the OpenAI API to generate or optimize content when an administrator explicitly triggers an AI action inside the plugin.
+ExMoment Author uses the WordPress AI Client to generate or optimize content. The AI Client sends a request to the provider an administrator has installed and configured through WordPress Connectors.
 
-Service: OpenAI API
+Service: Administrator-configured WordPress AI provider
 Data sent: Only the text and instructions provided in the ExMoment Author UI for the requested AI action.
 Data not sent: ExMoment Author does not automatically transmit site content, user data, or unrelated WordPress data.
 When sent: Only on explicit admin/user action inside the plugin.
 
-OpenAI Terms: <a href="https://openai.com/terms">https://openai.com/terms</a>
-OpenAI Privacy Policy: <a href="https://openai.com/policies/privacy-policy">https://openai.com/policies/privacy-policy</a>
+The applicable terms and privacy policy depend on the provider selected in WordPress Connectors. ExMoment Author does not store provider credentials.
 
 == Screenshots ==
 1. ExMoment Author dashboard
@@ -49,8 +48,9 @@ OpenAI Privacy Policy: <a href="https://openai.com/policies/privacy-policy">http
 == Installation ==
 1. Upload the plugin to `/wp-content/plugins/exmoment-author/` or install via the Plugins screen.
 2. Activate **ExMoment Author** through “Plugins”.
-3. Go to **Settings → ExMoment Author** to add your OpenAI API key and choose a behaviour mode.
-4. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
+3. Install and configure a compatible provider in **Settings → Connectors**.
+4. Go to **Settings → ExMoment Author** to verify the connection and choose a behaviour mode.
+5. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
 = 1.2.0 =

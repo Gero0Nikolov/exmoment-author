@@ -14,7 +14,7 @@ class SettingsPageController {
     /**
      * Default tab slug displayed when no explicit selection is provided.
      */
-    private const DEFAULT_TAB = 'openai';
+    private const DEFAULT_TAB = 'ai-client';
 
     /**
      * Register WordPress hooks for the Settings page.
@@ -87,9 +87,9 @@ class SettingsPageController {
         $partialsDirectory = dirname(__DIR__) . '/views/partials/';
 
         return [
-            'openai' => [
-                'label'   => __('OpenAI', 'exmoment-author'),
-                'partial' => $partialsDirectory . 'openai.php',
+            'ai-client' => [
+                'label'   => __('AI Client', 'exmoment-author'),
+                'partial' => $partialsDirectory . 'ai-client.php',
             ],
             'ai-setup' => [
                 'label'   => __('AI Setup', 'exmoment-author'),

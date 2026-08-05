@@ -19,7 +19,7 @@ if (!defined('ABSPATH')) {
 $heading = esc_html__('ExMoment Author — Settings', 'exmoment-author');
 $formAction = esc_url(admin_url('options.php'));
 $tabs = (isset($tabs) && is_array($tabs)) ? $tabs : [];
-$activeTab = (isset($activeTab) && is_string($activeTab)) ? $activeTab : 'openai';
+$activeTab = (isset($activeTab) && is_string($activeTab)) ? $activeTab : 'ai-client';
 
 if (!array_key_exists($activeTab, $tabs) && !empty($tabs)) {
     $activeTab = array_key_first($tabs);

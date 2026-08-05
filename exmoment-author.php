@@ -7,7 +7,7 @@ Version: 1.2.0
 Author: ExMoment Ltd.
 Author URI: https://exmoment.com
 License: GPLv2 or later
-Requires at least: 6.0
+Requires at least: 7.0
 Requires PHP: 8.3
 Tested up to: 7.0
 Text Domain: exmoment-author
