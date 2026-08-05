@@ -1168,6 +1168,7 @@ class JobsMetaController {
                         <button
                             type="button"
                             class="<?php echo esc_attr($buttonClasses); ?>"
+                            title="<?php echo esc_attr($label); ?>"
                             data-exmoau-job-mixture-tile="<?php echo esc_attr($directory); ?>"
                             aria-pressed="<?php echo esc_attr($isSelected ? 'true' : 'false'); ?>"
                         >

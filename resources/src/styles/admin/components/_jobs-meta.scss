@@ -237,12 +237,19 @@
     margin: 1rem 0;
 }
 .exmoau-job-setup__tile {
+    display: flex;
     width: 100%;
+    min-width: 0;
     justify-content: flex-start;
     text-align: left;
 }
 .exmoau-job-setup__tile-label {
     display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-weight: 600;
 }
 .exmoau-job-setup__mixture-toolbar {
