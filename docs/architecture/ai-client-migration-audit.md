@@ -1,5 +1,7 @@
 # AI Client Migration Audit
 
+> Historical document: this audit describes the pre-1.3.0 direct OpenAI transport. For the maintained architecture, use [AI Request Lifecycle](ai-request-lifecycle.md).
+
 ## Scope and Method
 
 This is the read-only audit completed before the transport migration. Findings came from `Core.php`, `composer.json`, `modules/gpt/`, `modules/jobs/`, `modules/settings/`, module views, and repository-wide searches for AI calls, HTTP endpoints, AJAX hooks, and REST registration.

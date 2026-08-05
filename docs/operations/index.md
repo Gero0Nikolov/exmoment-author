@@ -21,3 +21,5 @@
 - [Scheduler Lifecycle](scheduler-lifecycle.md) - Runtime lifecycle of worker execution.
 - [Used Articles Registry Rollout](used-articles-registry-rollout.md) - Rollout checklist.
 - [Used Articles UTC Regression Check](used-articles-utc-regression-check.md) - UTC safety test runbook.
+- [Testing Strategy](testing-strategy.md) - Static, AI, job-matrix, browser, and release-tree validation.
+- [WordPress.org Release Workflow](wordpress-org-release-workflow.md) - Git-to-SVN packaging, tagging, parity, and review process.

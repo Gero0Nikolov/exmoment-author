@@ -30,3 +30,17 @@ Jobs module powers the `exmoau_job` lifecycle from metadata and scheduling to ex
 The **Custom system prompt** meta box stores `exmoau_job_custom_system_prompt`. Blank values inherit the global AI Setup prompt. Non-empty values override only the editorial instructions; the required article/SEO response contract is always retained.
 
 The field preserves line breaks, rejects non-string input and values over 10,000 characters, and uses the existing job nonce, capability, autosave, revision, and validation-notice flow. It remains present when switching between Instant, Single Scheduled, and Repeating job types.
+
+## Shared execution lifecycle
+
+Publish-triggered and manual Instant runs call `runJobNow()` and permit `single_instant`. Scheduler dispatch calls `runScheduledJob()` and permits `single_scheduled` or `repeating_scheduled`. Both routes call `runJobGenerations()` and the same private `executeJob()` method, so prompt resolution, author context, source collection, AI invocation, response parsing, post creation, SEO metadata, and optional image generation share one implementation.
+
+## Prompt construction
+
+`JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author output/SEO protocol, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the editorial section.
+
+## Job Setup tiles
+
+`JobsMetaController::buildMixturePanelMarkup()` renders directory selection tiles for both the initial editor and Mixture AJAX refreshes. Long labels remain inside the tile with single-line ellipsis; short labels remain visible; the complete escaped label is in `title`. The directory stored in `data-exmoau-job-mixture-tile`, `aria-pressed`, selection classes, and persistence behavior are unchanged by truncation styling.
+
+See [Prompt and Author Context Pipeline](../architecture/prompt-and-author-context.md) and [Jobs Admin Workflows](../operations/jobs-admin-workflows.md).

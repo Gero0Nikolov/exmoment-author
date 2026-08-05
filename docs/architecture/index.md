@@ -15,4 +15,6 @@
 - [Configuration](configuration.md) - Runtime config map and module registration model.
 - [Hooks](hooks.md) - Key actions/filters across core and modules.
 - [JavaScript Autoload](javascript-autoload.md) - Admin script/style loading and conventions.
-- [AI Client Migration Audit](ai-client-migration-audit.md) - Evidence-based inventory of the pre-migration AI transport.
+- [AI Request Lifecycle](ai-request-lifecycle.md) - Current WordPress AI Client boundary, discovery, DTOs, capabilities, and errors.
+- [Prompt and Author Context Pipeline](prompt-and-author-context.md) - Mandatory protocol ordering, job overrides, and author privacy.
+- [AI Client Migration Audit](ai-client-migration-audit.md) - Historical evidence inventory of the pre-migration transport.

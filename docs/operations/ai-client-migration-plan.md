@@ -1,5 +1,7 @@
 # AI Client Migration Plan
 
+> Historical document: this plan was completed for version 1.3.0. Use [AI Request Lifecycle](../architecture/ai-request-lifecycle.md) for current architecture and [Testing Strategy](testing-strategy.md) for maintained validation coverage.
+
 ## Target Architecture
 
 ```text

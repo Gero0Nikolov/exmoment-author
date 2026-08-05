@@ -15,4 +15,6 @@ Settings module provides admin configuration UI and settings registration.
 - Register and persist plugin settings.
 - Render settings pages and partials.
 - Bridge settings state into GPT/jobs runtime needs.
-- Normalize and validate persisted GPT image-model settings against the centralized allowlist before runtime access.
+- Normalize provider/model preferences and image settings before runtime access; compatible model lists come from WordPress AI Client capability discovery.
+
+Credentials, endpoints, and provider authentication are outside this module and remain owned by WordPress Connectors.

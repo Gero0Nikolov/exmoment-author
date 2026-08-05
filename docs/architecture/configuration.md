@@ -19,7 +19,8 @@ Core configuration is assembled inside `ExMomentAuthorCoreSystem::__construct()`
 
 ## Configuration Notes
 
-- GPT/API settings are consumed by GPT and settings flows.
+- AI settings contain provider/model preferences, token budget, behavior prompts, author context, debug state, and image preferences. Provider credentials are not plugin configuration.
+- The `ai` module registers `AiService`; the `jobs` module registers `JobsAiContextResolver` without instantiating it.
 - Scheduler and jobs behavior is wired through jobs module controllers.
 - Library defaults include optional welcome CTA URL and activation seeding paths.
 
@@ -28,3 +29,4 @@ Core configuration is assembled inside `ExMomentAuthorCoreSystem::__construct()`
 - Keep module key names consistent with folder names.
 - Prefer extending `moduleConfig` for module options instead of hardcoding in controllers.
 - Update docs when new module keys or controller registrations are added.
+- Keep automatic provider/model selection represented by empty identifiers; do not introduce provider-specific defaults into core configuration.
