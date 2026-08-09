@@ -53,6 +53,9 @@ The applicable terms and privacy policy depend on the provider selected in WordP
 5. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.3.2 =
+Fixed generated article categorisation by deterministically matching actual library source categories to existing WordPress category IDs, names, or slugs. Parent and child categories are preserved, invalid or ambiguous matches are logged explicitly, and failed resolution no longer selects an unrelated first category.
+
 = 1.3.1 =
 Expanded and corrected technical documentation for the WordPress AI Client lifecycle, author context, custom job prompts, Job Setup tile behavior, testing, and WordPress.org release preparation.
 
