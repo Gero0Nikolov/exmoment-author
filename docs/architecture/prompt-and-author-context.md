@@ -32,6 +32,25 @@ The first four sections are combined into the single system instruction consumed
 
 The same resolution and composition code is used by `JobsExecutionController::executeJob()`. `runJobNow()` permits `single_instant` jobs and is used by publish/manual entry points; `runScheduledJob()` permits `single_scheduled` and `repeating_scheduled` jobs. Both dispatch through `runJobGenerations()` and the same `executeJob()` implementation.
 
+## SEO title ownership boundary
+
+The mandatory hidden metadata block asks the AI for a plain, article-specific `SEO_TITLE` of at most 60 characters. Site-level branding is intentionally outside the AI contract.
+
+The title path is:
+
+```text
+AI article-specific SEO_TITLE
+→ parser and existing title validation
+→ exact Yoast-variable deduplication
+→ append %%sep%% %%sitename%%
+→ store in _yoast_wpseo_title
+→ Yoast resolves the configured separator and current site name
+```
+
+`JobsExecutionController` owns response parsing and initial validation. `YoastSeoIntegration` owns canonical template composition and conditional metadata persistence. Yoast owns rendering of `%%sep%%` and `%%sitename%%`. This split keeps prompts provider-neutral, avoids hardcoded punctuation or branding, and allows a stored generated title to follow later Yoast separator or WordPress site-title changes.
+
+Only the exact Yoast variables are normalized. Literal strings such as hyphens, pipes, bullets, or possible site names are not stripped because the plugin cannot safely distinguish them from legitimate article-title text. Invalid or empty titles keep the existing no-write behavior, and unavailable Yoast returns without hard coupling or fatal errors.
+
 ## WordPress category-selection contract
 
 Before article generation, `JobsArticleCategoryResolver::getAvailableCategories()` reads current terms from the `category` taxonomy and reduces them to JSON records containing canonical `slug` and descriptive `name` values. Child terms remain independent records. Category names are data for semantic accuracy; only slugs are authoritative.

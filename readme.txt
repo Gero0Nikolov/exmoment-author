@@ -5,7 +5,7 @@ Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, 
 Requires at least: 7.0
 Requires PHP: 8.3
 Tested up to: 7.0
-Stable tag: 1.3.4
+Stable tag: 1.3.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,9 @@ The applicable terms and privacy policy depend on the provider selected in WordP
 5. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.3.5 =
+Fixed generated Yoast SEO titles so the AI-provided article title is stored with Yoast-native separator and site-name template variables. Yoast now controls the rendered site-level suffix dynamically from current settings, with regression hardening to prevent duplicate variables and preserve invalid-title handling.
+
 = 1.3.4 =
 Reworked generated article categorisation so the AI selects exact existing WordPress category slugs from a request-specific allowlist. Returned slugs are strictly validated before deterministic term assignment, and selected child categories now automatically include their complete parent hierarchy. Removed the previous source-label and ambiguous ID/name resolution paths, with expanded regression coverage for hierarchy assignment, invalid selections, and fallback prevention.
 

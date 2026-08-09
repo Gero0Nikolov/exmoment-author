@@ -26,6 +26,7 @@ Jobs module powers the `exmoau_job` lifecycle from metadata and scheduling to ex
 - Resolve one effective editorial prompt for instant, single-scheduled, and repeating-scheduled execution.
 - Resolve optional public author context from the same effective author ID used when creating the generated post.
 - Supply the current WordPress category allowlist to article generation and strictly validate AI-selected category slugs.
+- Pass validated article-specific SEO title text to the SEO module, which composes the Yoast-native site suffix.
 
 ## Per-Job System Prompt
 
@@ -40,6 +41,8 @@ Publish-triggered and manual Instant runs call `runJobNow()` and permit `single_
 ## Prompt construction
 
 `JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author article/SEO/category response protocol, mandatory category-selection contract and current category JSON allowlist, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the editorial section, so it cannot remove the category contract.
+
+The hidden `SEO_TITLE` response field contains only the article-specific plain title. After parsing and validation, `JobsExecutionController` passes it to `YoastSeoIntegration`; the AI is not responsible for Yoast separator or site-name variables.
 
 ## Generated post categorisation
 

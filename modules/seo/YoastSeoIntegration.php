@@ -12,6 +12,8 @@ class YoastSeoIntegration {
     private const YOAST_TITLE_META_KEY = '_yoast_wpseo_title';
     private const YOAST_DESCRIPTION_META_KEY = '_yoast_wpseo_metadesc';
     private const YOAST_FOCUS_KEY_META_KEY = '_yoast_wpseo_focuskw';
+    private const YOAST_SEPARATOR_VARIABLE = '%%sep%%';
+    private const YOAST_SITE_NAME_VARIABLE = '%%sitename%%';
     private const SEO_TITLE_MIN_LENGTH = 10;
     private const SEO_TITLE_MAX_LENGTH = 60;
     private const SEO_DESCRIPTION_MIN_LENGTH = 50;
@@ -67,7 +69,13 @@ class YoastSeoIntegration {
             return;
         }
 
-        $titleValidation = self::validateSeoTitleValue($seoTitle);
+        $seoTitleText = self::normalizeYoastTitleText($seoTitle);
+        $titleValidation = self::validateSeoTitleValue($seoTitleText);
+        $seoTitleTemplate = (
+            $titleValidation['valid'] ?
+            self::composeYoastTitleTemplate($titleValidation['value']) :
+            ''
+        );
         $descriptionValidation = self::validateSeoDescriptionValue($seoDescription);
         $focusKeyphraseValidation = self::validateFocusKeyphraseValue($focusKeyphrase);
 
@@ -94,9 +102,10 @@ class YoastSeoIntegration {
 
         if (
             $titleValidation['valid'] &&
+            $seoTitleTemplate !== '' &&
             $this->canOverwriteExistingSeoValue('title', $existingTitle)
         ) {
-            update_post_meta($postId, self::YOAST_TITLE_META_KEY, $titleValidation['value']);
+            update_post_meta($postId, self::YOAST_TITLE_META_KEY, $seoTitleTemplate);
         }
 
         if (
@@ -141,6 +150,33 @@ class YoastSeoIntegration {
         $value = sanitize_text_field($value);
 
         return trim($value);
+    }
+
+    /**
+     * Compose a canonical Yoast post-title template from generated title text.
+     *
+     * The generated value owns only the article-specific title. Exact Yoast
+     * separator and site-name variables are removed before the canonical
+     * suffix is appended, which prevents duplicate template variables without
+     * guessing at rendered separators or site names.
+     *
+     * @param mixed $value Generated or legacy title candidate.
+     * @return string Canonical Yoast title template, or an empty string when invalid.
+     */
+    public static function composeYoastTitleTemplate($value) {
+        $titleText = self::normalizeYoastTitleText($value);
+        $validation = self::validateSeoTitleValue($titleText);
+
+        if (!$validation['valid']) {
+            return '';
+        }
+
+        return sprintf(
+            '%s %s %s',
+            $validation['value'],
+            self::YOAST_SEPARATOR_VARIABLE,
+            self::YOAST_SITE_NAME_VARIABLE
+        );
     }
 
     /**
@@ -419,7 +455,45 @@ class YoastSeoIntegration {
     private function isValidExistingSeoTitle($value) {
         $validation = self::validateSeoTitleValue($value);
 
+        if (!empty($validation['valid'])) {
+            return true;
+        }
+
+        $validation = self::validateSeoTitleValue(self::normalizeYoastTitleText($value));
+
         return !empty($validation['valid']);
+    }
+
+    /**
+     * Normalize title text while removing only exact Yoast suffix variables.
+     *
+     * Literal separators and site names are deliberately preserved because
+     * they may be legitimate article-title text and cannot be identified
+     * safely without fuzzy matching.
+     *
+     * @param mixed $value Generated or stored title candidate.
+     * @return string Article-specific title text without Yoast title variables.
+     */
+    private static function normalizeYoastTitleText($value) {
+        $normalizedValue = self::normalizeSeoValue($value);
+
+        if ($normalizedValue === '') {
+            return '';
+        }
+
+        $normalizedValue = preg_replace(
+            '/%%(?:sep|sitename)%%/iu',
+            ' ',
+            $normalizedValue
+        );
+
+        if (!is_string($normalizedValue)) {
+            return '';
+        }
+
+        $normalizedValue = preg_replace('/\s+/u', ' ', $normalizedValue);
+
+        return is_string($normalizedValue) ? trim($normalizedValue) : '';
     }
 
     /**
