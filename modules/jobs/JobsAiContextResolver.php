@@ -135,7 +135,7 @@ class JobsAiContextResolver {
     }
 
     /**
-     * Build image-generation author metadata without requesting a portrait or text.
+     * Build image-generation author metadata that can guide human-subject casting.
      *
      * @param string $displayName Public author display name.
      * @return string Context instruction or an empty string.
@@ -149,7 +149,7 @@ class JobsAiContextResolver {
         }
 
         return sprintf(
-            'Author context: The accompanying article is authored by %s. Use this only to understand the editorial tone. Do not include the author, their likeness, their name, a byline, signature, watermark, or logo in the image unless the image instructions explicitly require it.',
+            'Author casting context: The accompanying article is authored by %s. If an article-relevant scene includes one primary person, align that subject\'s gender presentation with what the public author name conventionally indicates. Do not portray or identify the subject as the author, and do not invent a specific likeness. If the name is ambiguous, use a gender-neutral or person-free composition. Do not render the author\'s name, a byline, signature, watermark, logo, or other text.',
             $displayName
         );
     }

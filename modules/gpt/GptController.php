@@ -69,6 +69,11 @@ class GptController {
     private const META_AI_FEATURED_IMAGE = 'exmoau_ai_featured_image_generated';
 
     /**
+     * Keep featured images specific to the article and prevent repetitive subject casting.
+     */
+    private const FEATURED_IMAGE_COMPOSITION_INSTRUCTION = 'Editorial composition requirements: Represent the article\'s specific subject rather than a generic lifestyle scene. Include people only when they help communicate the subject. When people are included, vary their gender presentation instead of defaulting to women.';
+
+    /**
      * Retrieve sanitized image generation settings from persisted configuration.
      *
      * @return array{model: string, style_prompt: string, dimensions: string, enabled: bool}
@@ -1652,6 +1657,10 @@ class GptController {
         if (strlen($combinedPrompt) > 500) {
             $combinedPrompt = substr($combinedPrompt, 0, 500);
         }
+
+        $combinedPrompt = trim(
+            $combinedPrompt . ' ' . self::FEATURED_IMAGE_COMPOSITION_INSTRUCTION
+        );
 
         $authorContext = is_string($authorContext) ? $authorContext : '';
         $authorContext = wp_strip_all_tags($authorContext, true);

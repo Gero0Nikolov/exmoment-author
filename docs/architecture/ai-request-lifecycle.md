@@ -50,7 +50,7 @@ JobsExecutionController::maybeGenerateFeaturedImage()
 → WordPress uploads, media attachment, and post thumbnail
 ```
 
-The image prompt combines the configured style prompt with a title/content-derived excerpt. That base prompt is limited to 500 characters before optional author context is appended. `AiService` maps the selected dimensions to a provider-neutral aspect ratio, checks image-generation support, and requires a `WordPress\AiClient\Files\DTO\File`. `GptController` supports both inline and remote file DTOs when persisting media.
+The image prompt combines the configured style prompt with a title/content-derived excerpt. That base prompt is limited to 500 characters before mandatory topic-first composition and subject-variation guidance is appended. When enabled, public-author context then guides the gender presentation of an article-relevant primary subject without requesting a portrait or specific likeness. `AiService` maps the selected dimensions to a provider-neutral aspect ratio, checks image-generation support, and requires a `WordPress\AiClient\Files\DTO\File`. `GptController` supports both inline and remote file DTOs when persisting media.
 
 Image generation stops safely when disabled, in debug mode, when a thumbnail already exists, when no post/prompt is available, or when the provider/model cannot satisfy image generation. Image failure does not invent provider-specific fallback models.
 
@@ -98,4 +98,3 @@ The provider message is sanitized and retained only when `WP_DEBUG` is enabled. 
 - [GPT Module](../modules/gpt.md)
 - [AI Setup](../settings/ai-setup.md)
 - [GPT Debug Mode](../operations/gpt-debug-mode.md)
-

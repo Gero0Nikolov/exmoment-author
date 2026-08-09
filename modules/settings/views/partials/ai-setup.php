@@ -183,7 +183,7 @@ $selectAriaControls = implode(
             <?php esc_html_e('Send the selected WordPress author’s display name to the AI when generating article content and featured images.', 'exmoment-author'); ?>
         </label>
         <p class="description">
-            <?php esc_html_e('Disabled by default. Only the public display name is sent as tone context; it is not requested as article text, a byline, a portrait, or visible image text.', 'exmoment-author'); ?>
+            <?php esc_html_e('Disabled by default. Only the public display name is sent. For featured images, it guides the gender presentation of an article-relevant person without requesting a portrait, likeness, byline, or visible text.', 'exmoment-author'); ?>
         </p>
     </td>
 </tr>

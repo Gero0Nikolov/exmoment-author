@@ -62,10 +62,13 @@ Article context from `buildArticleAuthorContext()`:
 
 Image context from `buildImageAuthorContext()`:
 
-- treats the display name only as editorial-tone guidance;
-- does not request the author, their portrait or likeness, their name, a byline, signature, watermark, logo, or other visible text unless separate image instructions explicitly require it.
+- keeps the article topic primary and includes a person only when the subject benefits from one;
+- uses the public display name as a guarded cue for the primary subject's gender presentation when a person is editorially relevant;
+- uses a gender-neutral or person-free composition when the public name is ambiguous;
+- does not present the subject as the author or invent a specific likeness;
+- does not render the author's name, a byline, signature, watermark, logo, or other visible text.
 
-The plugin does not infer or transmit appearance, biography, credentials, personality, personal history, email, login, roles, capabilities, or other private profile data. If no valid display name exists, article and image generation continue without author context and may record only safe boolean diagnostics.
+The plugin does not infer or transmit a specific appearance, biography, credentials, personality, personal history, email, login, roles, capabilities, or other private profile data. If no valid display name exists, article and image generation continue without author context and may record only safe boolean diagnostics.
 
 ## Featured-image ordering
 
@@ -74,7 +77,8 @@ The plugin does not infer or transmit appearance, biography, credentials, person
 1. optional global image style prompt;
 2. article title plus a roughly 30-word plain-text excerpt;
 3. truncate that combined base prompt to 500 characters;
-4. append the optional generated image author-context sentence.
+4. append mandatory topic-first composition and subject-variation guidance;
+5. append the optional generated image author casting context.
 
 No message DTO list is required for image generation because `AiService::generateImage()` receives one prompt string.
 
