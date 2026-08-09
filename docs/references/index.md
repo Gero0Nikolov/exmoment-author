@@ -15,4 +15,5 @@
 - [Instant Model Rejection Investigation](instant-model-rejection-investigation.md) - Root cause, targeted fix, and live validation for Instant job request rejection.
 - [Author Context and Job Prompt Overrides](author-context-and-job-system-prompt-implementation.md) - Resolution rules, privacy boundaries, and verification evidence.
 - [Job Setup Tile Overflow Fix](job-setup-tile-overflow-fix.md) - Ellipsis, title attributes, responsive validation, and interaction checks for directory tiles.
+- [Article Categorisation Audit and Fix](article-categorisation-audit-and-fix-report.md) - Root cause, deterministic resolution contract, automated coverage, and local WordPress validation.
 - [Version 1.3.1 Documentation and SVN Release Preparation](version-1.3.1-documentation-and-svn-release-preparation.md) - Local implementation, validation, packaging, and release-preparation record; intentionally excluded from the WordPress.org package because it contains workstation-specific review commands.

@@ -31,6 +31,8 @@ The first three sections are combined into the single system instruction consume
 
 The same resolution and composition code is used by `JobsExecutionController::executeJob()`. `runJobNow()` permits `single_instant` jobs and is used by publish/manual entry points; `runScheduledJob()` permits `single_scheduled` and `repeating_scheduled` jobs. Both dispatch through `runJobGenerations()` and the same `executeJob()` implementation.
 
+WordPress category assignment remains outside the AI response contract. Source messages retain their library-category labels, and the post-insertion path resolves those labels deterministically against existing WordPress category IDs, names, and slugs. The model is not asked to invent or choose a category.
+
 ## Custom job system prompt persistence
 
 The **Custom System Prompt** meta box is registered by `JobsMetaController::registerMetaBoxes()` on the `exmoau_job` editor. Its textarea name and post meta key are `exmoau_job_custom_system_prompt`.
@@ -82,4 +84,3 @@ No message DTO list is required for image generation because `AiService::generat
 - [Jobs Module](../modules/jobs-module.md)
 - [Settings Module](../settings/settings-module.md)
 - [Author Context and Job Prompt Implementation Report](../references/author-context-and-job-system-prompt-implementation.md)
-

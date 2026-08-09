@@ -764,6 +764,8 @@ class JobsExecutionController {
             'skipped_used_files' => 0,
             'duration' => 0.0,
             'post_status' => '',
+            'category_ids' => array(),
+            'unresolved_categories' => array(),
         ];
 
         $job = get_post($jobId);
@@ -1089,12 +1091,22 @@ class JobsExecutionController {
             return $result;
         }
 
+        $categoryResolution = $this->resolvePostCategories(
+            $articles,
+            $configuration['post_type'],
+            $jobId
+        );
+        $categoryIds = $categoryResolution['term_ids'];
+        $result['category_ids'] = $categoryIds;
+        $result['unresolved_categories'] = $categoryResolution['unresolved'];
+
         $insertResult = $this->createPost(
             $title,
             $body,
             $configuration['post_type'],
             $configuration['post_status'],
-            $authorId
+            $authorId,
+            $categoryIds
         );
 
         if (is_wp_error($insertResult)) {
@@ -1130,13 +1142,14 @@ class JobsExecutionController {
         }
 
         $this->logDebug(
-            'Job %d created post %d (status=%s, model=%s, duration=%.2fs, sources=%d, truncated=%s).',
+            'Job %d created post %d (status=%s, model=%s, duration=%.2fs, sources=%d, category_ids=%s, truncated=%s).',
             $jobId,
             $postId,
             $configuration['post_status'],
             $model,
             $duration,
             $result['sources'],
+            !empty($categoryIds) ? implode(',', $categoryIds) : '(default)',
             ($result['truncated'] ? 'yes' : 'no')
         );
 
@@ -2547,9 +2560,10 @@ runcated: bool, removed_invalid: array<int, string>}
      * @param string $postType    Target post type.
      * @param string $postStatus  Target post status (publish|draft).
      * @param int    $postAuthor  Author user ID.
+     * @param int[]  $categoryIds Valid category term IDs.
      * @return int|WP_Error Post ID on success or WP_Error on failure.
      */
-    private function createPost($title, $body, $postType, $postStatus, $postAuthor) {
+    private function createPost($title, $body, $postType, $postStatus, $postAuthor, array $categoryIds = array()) {
         $sanitizedTitle = wp_strip_all_tags($title);
         $sanitizedTitle = sanitize_text_field($sanitizedTitle);
         if ($sanitizedTitle === '') {
@@ -2558,15 +2572,148 @@ runcated: bool, removed_invalid: array<int, string>}
 
         $sanitizedContent = wp_kses_post($body);
 
-        $postData = [
-            'post_title' => $sanitizedTitle,
+        $postData = array(
+            'post_title'   => $sanitizedTitle,
             'post_content' => $sanitizedContent,
-            'post_type' => $postType,
-            'post_status' => $postStatus,
-            'post_author' => (int) $postAuthor,
-        ];
+            'post_type'    => $postType,
+            'post_status'  => $postStatus,
+            'post_author'  => (int) $postAuthor,
+        );
+
+        $categoryIds = $this->validatePostCategoryIds($categoryIds);
+        if (!empty($categoryIds) && is_object_in_taxonomy($postType, 'category')) {
+            $postData['post_category'] = $categoryIds;
+        }
 
         return wp_insert_post($postData, true, false);
+    }
+
+    /**
+     * Resolve actual source categories for a generated post.
+     *
+     * The AI response does not select a category. Existing library directory
+     * identifiers are the job's category context and are matched only to
+     * existing WordPress terms. Failed or ambiguous matches are logged and no
+     * unrelated fallback category is supplied to wp_insert_post().
+     *
+     * @param array<int, array<string, mixed>> $articles Actual source articles.
+     * @param string                           $postType Target post type.
+     * @param int                              $jobId   Job post ID.
+     * @return array{
+     *     term_ids:array<int, int>,
+     *     unresolved:array<int, string>,
+     *     ambiguous:array<string, array<int, int>>,
+     *     error:string
+     * }
+     */
+    private function resolvePostCategories(array $articles, $postType, $jobId) {
+        $emptyResult = array(
+            'term_ids'   => array(),
+            'unresolved' => array(),
+            'ambiguous'  => array(),
+            'error'      => '',
+        );
+
+        if (!is_string($postType) || !is_object_in_taxonomy($postType, 'category')) {
+            return $emptyResult;
+        }
+
+        $references = array();
+        foreach ($articles as $article) {
+            if (!is_array($article) || !isset($article['category']) || !is_string($article['category'])) {
+                $references[] = '';
+                continue;
+            }
+
+            $reference = trim($article['category']);
+            if ($reference === '') {
+                $references[] = '';
+                continue;
+            }
+
+            $references[] = $reference;
+        }
+
+        $references = array_values(array_unique($references));
+        $resolver = new JobsArticleCategoryResolver();
+        $resolution = $resolver->resolve($references);
+
+        if (!empty($resolution['unresolved']) || !empty($resolution['ambiguous']) || $resolution['error'] !== '') {
+            $this->logCategoryResolutionWarning($jobId, $references, $resolution);
+        }
+
+        return $resolution;
+    }
+
+    /**
+     * Validate category IDs immediately before WordPress post insertion.
+     *
+     * @param int[] $categoryIds Candidate term IDs.
+     * @return int[]
+     */
+    private function validatePostCategoryIds(array $categoryIds) {
+        $validated = array();
+
+        foreach ($categoryIds as $categoryId) {
+            $categoryId = absint($categoryId);
+            if ($categoryId < 1) {
+                continue;
+            }
+
+            $term = get_term($categoryId, 'category');
+            if (!($term instanceof \WP_Term) || $term->taxonomy !== 'category') {
+                continue;
+            }
+
+            $validated[] = $categoryId;
+        }
+
+        return array_values(array_unique($validated));
+    }
+
+    /**
+     * Persist an explicit warning when source-category resolution is incomplete.
+     *
+     * @param int                  $jobId     Job post ID.
+     * @param string[]             $references Source-category references.
+     * @param array<string, mixed> $resolution Resolver result.
+     * @return void
+     */
+    private function logCategoryResolutionWarning($jobId, array $references, array $resolution) {
+        $logger = LogService::getInstance();
+        if (!($logger instanceof LogService)) {
+            return;
+        }
+
+        $termIds = isset($resolution['term_ids']) && is_array($resolution['term_ids'])
+            ? array_values(array_map('absint', $resolution['term_ids']))
+            : array();
+        $unresolved = isset($resolution['unresolved']) && is_array($resolution['unresolved'])
+            ? array_values(array_map('sanitize_text_field', $resolution['unresolved']))
+            : array();
+        $ambiguous = isset($resolution['ambiguous']) && is_array($resolution['ambiguous'])
+            ? $resolution['ambiguous']
+            : array();
+        $error = isset($resolution['error']) && is_string($resolution['error'])
+            ? sanitize_key($resolution['error'])
+            : '';
+
+        $message = empty($termIds)
+            ? 'No existing WordPress category matched the generated article source context; WordPress default category behavior will apply.'
+            : 'Some generated article source categories could not be resolved; only validated exact matches will be assigned.';
+
+        $logger->warning(
+            'jobs.categorisation',
+            $message,
+            array(
+                'references'        => array_values(array_map('sanitize_text_field', $references)),
+                'resolved_term_ids' => $termIds,
+                'unresolved'        => $unresolved,
+                'ambiguous'         => $ambiguous,
+                'error'             => $error,
+            ),
+            absint($jobId)
+        );
     }
 
     /**

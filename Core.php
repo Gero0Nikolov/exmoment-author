@@ -378,6 +378,10 @@ class ExMomentAuthorCoreSystem {
                         'class'        => 'JobsAiContextResolver',
                         'instantiate'  => false,
                     ],
+                    array(
+                        'class'        => 'JobsArticleCategoryResolver',
+                        'instantiate'  => false,
+                    ),
                     [
                         'class'        => 'JobsPublicationValidator',
                         'instantiate'  => true,

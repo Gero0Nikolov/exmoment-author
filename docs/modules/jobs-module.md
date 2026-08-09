@@ -10,6 +10,7 @@ Jobs module powers the `exmoau_job` lifecycle from metadata and scheduling to ex
 - `modules/jobs/JobsMetaController.php`
 - `modules/jobs/JobsSchedulingController.php`
 - `modules/jobs/JobsExecutionController.php`
+- `modules/jobs/JobsArticleCategoryResolver.php`
 - `modules/jobs/JobsAiContextResolver.php`
 - `modules/jobs/JobsPublicationValidator.php`
 - `modules/jobs/JobsErrorController.php`
@@ -38,6 +39,14 @@ Publish-triggered and manual Instant runs call `runJobNow()` and permit `single_
 ## Prompt construction
 
 `JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author output/SEO protocol, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the editorial section.
+
+## Generated post categorisation
+
+The AI response does not select a WordPress category. The category context is the set of library directories that supplied actual source articles for the generation.
+
+`JobsArticleCategoryResolver` resolves each source-category reference against existing terms in the `category` taxonomy. Exact valid IDs take precedence when present; other values use normalized exact slug or name matching. Duplicate-name ambiguity and unmatched values are rejected and logged. Valid child terms remain child terms, multiple legitimate source categories may all be assigned, and the resolver never creates terms or substitutes the first term returned by WordPress.
+
+When no reference resolves, `JobsExecutionController` omits `post_category`, records a `jobs.categorisation` warning, and allows WordPress's configured default-category behavior to apply.
 
 ## Job Setup tiles
 

@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 /*
 Plugin Name: ExMoment Author
 Description: Generate, manage, and publish SEO-ready content faster with ExMoment Author’s AI workflows and content library.
-Version: 1.3.1
+Version: 1.3.2
 Author: ExMoment Ltd.
 Author URI: https://exmoment.com
 License: GPLv2 or later
