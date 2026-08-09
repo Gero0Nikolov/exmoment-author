@@ -2,48 +2,40 @@
 
 namespace ExMomentAuthor\Modules\Jobs;
 
-if ( ! defined( 'ABSPATH' ) ) { exit; }
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 use WP_Error;
 use WP_Term;
 
 /**
- * Resolve job source-category references to existing WordPress category terms.
+ * Build the WordPress category allowlist and validate AI-selected slugs.
  */
 class JobsArticleCategoryResolver {
 
     /**
-     * Resolve category IDs without creating or guessing terms.
+     * Maximum WordPress term-slug length.
+     */
+    private const MAX_SLUG_LENGTH = 200;
+
+    /**
+     * Retrieve current category terms as prompt-safe slug/name records.
      *
-     * Numeric references prefer exact term IDs. String references otherwise
-     * use normalized exact slug or name matching. Ambiguous duplicate names
-     * are rejected rather than resolved by term order.
-     *
-     * @param array<int, mixed> $references Category IDs, names, or slugs.
      * @return array{
-     *     term_ids:array<int, int>,
-     *     unresolved:array<int, string>,
-     *     ambiguous:array<string, array<int, int>>,
+     *     categories:array<int, array{slug:string,name:string}>,
+     *     slugs:array<int, string>,
      *     error:string
      * }
      */
-    public function resolve(array $references) {
+    public function getAvailableCategories() {
         $result = array(
-            'term_ids'   => array(),
-            'unresolved' => array(),
-            'ambiguous'  => array(),
+            'categories' => array(),
+            'slugs'      => array(),
             'error'      => '',
         );
-        $invalidReferences = array();
-        $references = $this->normalizeReferences($references, $invalidReferences);
-        $result['unresolved'] = $invalidReferences;
-
-        if (empty($references)) {
-            return $result;
-        }
 
         if (!taxonomy_exists('category')) {
-            $result['unresolved'] = array_values(array_unique(array_merge($result['unresolved'], $references)));
             $result['error'] = 'category_taxonomy_unavailable';
 
             return $result;
@@ -54,92 +46,21 @@ class JobsArticleCategoryResolver {
             'hide_empty' => false,
         ));
 
-        if ($terms instanceof WP_Error) {
-            $result['unresolved'] = array_values(array_unique(array_merge($result['unresolved'], $references)));
+        if ($terms instanceof WP_Error || !is_array($terms)) {
             $result['error'] = 'category_terms_unavailable';
 
             return $result;
         }
 
-        $indexes = $this->buildTermIndexes($terms);
-
-        foreach ($references as $reference) {
-            $label = $this->referenceLabel($reference);
-            $termId = $this->resolveReference($reference, $indexes, $result['ambiguous']);
-
-            if ($termId < 1 || !$this->isValidCategoryTerm($termId)) {
-                $result['unresolved'][] = $label;
-                continue;
-            }
-
-            $result['term_ids'][] = $termId;
-        }
-
-        $result['term_ids'] = array_values(array_unique(array_map('absint', $result['term_ids'])));
-        $result['unresolved'] = array_values(array_unique($result['unresolved']));
-
-        return $result;
-    }
-
-    /**
-     * Normalize supported scalar references while preserving their type.
-     *
-     * @param array<int, mixed> $references       Raw references.
-     * @param string[]          $invalidReferences Invalid-reference accumulator.
-     * @return array<int, int|string>
-     */
-    private function normalizeReferences(array $references, array &$invalidReferences) {
-        $normalized = array();
-
-        foreach ($references as $reference) {
-            if (is_int($reference)) {
-                if ($reference > 0) {
-                    $normalized[] = $reference;
-                } else {
-                    $invalidReferences[] = $this->referenceLabel($reference);
-                }
-
-                continue;
-            }
-
-            if (!is_string($reference)) {
-                $invalidReferences[] = $this->referenceLabel($reference);
-                continue;
-            }
-
-            $reference = trim($reference);
-            if ($reference === '') {
-                $invalidReferences[] = '(empty)';
-                continue;
-            }
-
-            $normalized[] = $reference;
-        }
-
-        $invalidReferences = array_values(array_unique($invalidReferences));
-
-        return array_values(array_unique($normalized, SORT_REGULAR));
-    }
-
-    /**
-     * Build deterministic lookup indexes for the category taxonomy.
-     *
-     * @param array<int, mixed> $terms Term objects returned by get_terms().
-     * @return array{
-     *     by_id:array<int, int>,
-     *     by_slug:array<string, int>,
-     *     by_name:array<string, array<int, int>>
-     * }
-     */
-    private function buildTermIndexes(array $terms) {
-        $indexes = array(
-            'by_id'   => array(),
-            'by_slug' => array(),
-            'by_name' => array(),
-        );
+        $seenSlugs = array();
 
         foreach ($terms as $term) {
             if (!($term instanceof WP_Term) || $term->taxonomy !== 'category') {
+                continue;
+            }
+
+            $slug = is_string($term->slug) ? $term->slug : '';
+            if ($this->validateSlugFormat($slug) !== '' || isset($seenSlugs[$slug])) {
                 continue;
             }
 
@@ -148,146 +69,334 @@ class JobsArticleCategoryResolver {
                 continue;
             }
 
-            $slugKey = $this->normalizeSlug($term->slug);
-            $nameKey = $this->normalizeName($term->name);
+            $name = is_string($term->name) ? wp_specialchars_decode($term->name, ENT_QUOTES) : '';
+            $name = sanitize_text_field($name);
+            $name = trim($name);
 
-            $indexes['by_id'][$termId] = $termId;
-
-            if ($slugKey !== '') {
-                $indexes['by_slug'][$slugKey] = $termId;
+            if ($name === '') {
+                $name = $slug;
             }
 
-            if ($nameKey !== '') {
-                if (!isset($indexes['by_name'][$nameKey])) {
-                    $indexes['by_name'][$nameKey] = array();
+            $seenSlugs[$slug] = true;
+            $result['categories'][] = array(
+                'slug' => $slug,
+                'name' => $name,
+            );
+        }
+
+        usort(
+            $result['categories'],
+            static function ($left, $right) {
+                return strcmp($left['slug'], $right['slug']);
+            }
+        );
+
+        foreach ($result['categories'] as $category) {
+            $result['slugs'][] = $category['slug'];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Validate untrusted AI-selected slugs against the exact request allowlist.
+     *
+     * @param mixed    $selectedSlugs Slug list parsed from the AI response.
+     * @param string[] $allowedSlugs  Exact slugs supplied in the AI request.
+     * @return array{
+     *     term_ids:array<int, int>,
+     *     selected_term_ids:array<int, int>,
+     *     ancestor_term_ids:array<int, int>,
+     *     selected_slugs:array<int, string>,
+     *     rejected_slugs:array<int, string>,
+     *     rejections:array<int, array{value:string,reason:string}>,
+     *     ancestor_rejections:array<int, array{term_id:int,reason:string}>,
+     *     error:string
+     * }
+     */
+    public function resolve($selectedSlugs, array $allowedSlugs) {
+        $result = array(
+            'term_ids'            => array(),
+            'selected_term_ids'   => array(),
+            'ancestor_term_ids'   => array(),
+            'selected_slugs'      => array(),
+            'rejected_slugs'      => array(),
+            'rejections'          => array(),
+            'ancestor_rejections' => array(),
+            'error'               => '',
+        );
+
+        if (!is_array($selectedSlugs) || !array_is_list($selectedSlugs)) {
+            $result['error'] = 'invalid_selection_type';
+
+            return $result;
+        }
+
+        $allowedMap = $this->buildAllowedSlugMap($allowedSlugs);
+        if (empty($selectedSlugs)) {
+            $result['error'] = 'empty_selection';
+
+            return $result;
+        }
+
+        $seenSelected = array();
+
+        foreach ($selectedSlugs as $selectedSlug) {
+            $formatError = $this->validateSlugFormat($selectedSlug);
+            if ($formatError !== '') {
+                $this->addRejection($result, $selectedSlug, $formatError);
+                continue;
+            }
+
+            $slug = $selectedSlug;
+            if (!isset($allowedMap[$slug])) {
+                $this->addRejection($result, $slug, 'slug_not_allowlisted');
+                continue;
+            }
+
+            if (isset($seenSelected[$slug])) {
+                continue;
+            }
+
+            $term = get_term_by('slug', $slug, 'category');
+            if (!($term instanceof WP_Term) || $term->taxonomy !== 'category' || $term->slug !== $slug) {
+                $this->addRejection($result, $slug, 'category_term_missing');
+                continue;
+            }
+
+            $termId = absint($term->term_id);
+            if ($termId < 1) {
+                $this->addRejection($result, $slug, 'category_term_invalid');
+                continue;
+            }
+
+            $seenSelected[$slug] = true;
+            $result['selected_slugs'][] = $slug;
+            $result['selected_term_ids'][] = $termId;
+        }
+
+        $result['selected_term_ids'] = array_values(array_unique(array_map('absint', $result['selected_term_ids'])));
+
+        if (empty($result['selected_slugs'])) {
+            $result['error'] = 'no_valid_categories';
+        } elseif (!empty($result['rejections'])) {
+            $result['error'] = 'partial_invalid_selection';
+        }
+
+        if (!empty($result['selected_term_ids'])) {
+            $hierarchy = $this->expandSelectedTermsToAncestors(
+                $result['selected_slugs'],
+                $result['selected_term_ids']
+            );
+            $result['term_ids'] = $hierarchy['term_ids'];
+            $result['ancestor_term_ids'] = $hierarchy['ancestor_term_ids'];
+            $result['ancestor_rejections'] = $hierarchy['ancestor_rejections'];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Expand direct selections to deterministic root-to-leaf category paths.
+     *
+     * Branches are sorted by their selected canonical slug so neither the AI
+     * response order nor the original allowlist position controls assignment.
+     * WordPress owns ancestor traversal through get_ancestors().
+     *
+     * @param string[] $selectedSlugs   Validated selected slugs.
+     * @param int[]    $selectedTermIds Direct selected term IDs.
+     * @return array{
+     *     term_ids:array<int, int>,
+     *     ancestor_term_ids:array<int, int>,
+     *     ancestor_rejections:array<int, array{term_id:int,reason:string}>
+     * }
+     */
+    private function expandSelectedTermsToAncestors(array $selectedSlugs, array $selectedTermIds) {
+        $branches = array();
+        $selectedIdMap = array();
+
+        foreach ($selectedTermIds as $selectedTermId) {
+            $selectedTermId = absint($selectedTermId);
+            if ($selectedTermId > 0) {
+                $selectedIdMap[$selectedTermId] = true;
+            }
+        }
+
+        foreach ($selectedSlugs as $index => $selectedSlug) {
+            $selectedTermId = isset($selectedTermIds[$index]) ? absint($selectedTermIds[$index]) : 0;
+            if (!is_string($selectedSlug) || $selectedTermId < 1) {
+                continue;
+            }
+
+            $branches[] = array(
+                'slug'    => $selectedSlug,
+                'term_id' => $selectedTermId,
+            );
+        }
+
+        usort(
+            $branches,
+            static function ($left, $right) {
+                return strcmp($left['slug'], $right['slug']);
+            }
+        );
+
+        $termIds = array();
+        $ancestorTermIds = array();
+        $ancestorRejections = array();
+        $seenFinalIds = array();
+        $seenAncestorIds = array();
+
+        foreach ($branches as $branch) {
+            $selectedTermId = $branch['term_id'];
+            $selectedTerm = get_term($selectedTermId, 'category');
+
+            if (!($selectedTerm instanceof WP_Term) || $selectedTerm->taxonomy !== 'category') {
+                $this->addAncestorRejection($ancestorRejections, $selectedTermId, 'selected_term_missing_during_expansion');
+                continue;
+            }
+
+            $ancestorIds = get_ancestors($selectedTermId, 'category', 'taxonomy');
+            if (!is_array($ancestorIds)) {
+                $ancestorIds = array();
+                $this->addAncestorRejection($ancestorRejections, absint($selectedTerm->parent), 'ancestor_chain_unavailable');
+            } elseif (absint($selectedTerm->parent) > 0 && empty($ancestorIds)) {
+                $this->addAncestorRejection($ancestorRejections, absint($selectedTerm->parent), 'ancestor_chain_unavailable');
+            }
+
+            $ancestorIds = array_reverse(array_values(array_map('absint', $ancestorIds)));
+
+            foreach ($ancestorIds as $ancestorId) {
+                if ($ancestorId < 1) {
+                    continue;
                 }
 
-                $indexes['by_name'][$nameKey][] = $termId;
+                $ancestor = get_term($ancestorId, 'category');
+                if (!($ancestor instanceof WP_Term) || $ancestor->taxonomy !== 'category') {
+                    $this->addAncestorRejection($ancestorRejections, $ancestorId, 'ancestor_term_missing');
+                    continue;
+                }
+
+                if (!isset($seenFinalIds[$ancestorId])) {
+                    $termIds[] = $ancestorId;
+                    $seenFinalIds[$ancestorId] = true;
+                }
+
+                if (!isset($selectedIdMap[$ancestorId]) && !isset($seenAncestorIds[$ancestorId])) {
+                    $ancestorTermIds[] = $ancestorId;
+                    $seenAncestorIds[$ancestorId] = true;
+                }
+            }
+
+            if (!isset($seenFinalIds[$selectedTermId])) {
+                $termIds[] = $selectedTermId;
+                $seenFinalIds[$selectedTermId] = true;
             }
         }
 
-        return $indexes;
+        return array(
+            'term_ids'            => $termIds,
+            'ancestor_term_ids'   => $ancestorTermIds,
+            'ancestor_rejections' => $ancestorRejections,
+        );
     }
 
     /**
-     * Resolve one category reference against the prepared indexes.
+     * Build an exact lookup map from the request allowlist.
      *
-     * @param int|string                                $reference Raw category reference.
-     * @param array<string, array<int|string, mixed>>    $indexes   Category lookup indexes.
-     * @param array<string, array<int, int>>             $ambiguous Ambiguous-name accumulator.
-     * @return int Resolved category term ID or zero.
+     * @param string[] $allowedSlugs Candidate allowlist values.
+     * @return array<string, bool>
      */
-    private function resolveReference($reference, array $indexes, array &$ambiguous) {
-        $numericId = 0;
+    private function buildAllowedSlugMap(array $allowedSlugs) {
+        $allowedMap = array();
 
-        if (is_int($reference)) {
-            $numericId = $reference;
-        } elseif (is_string($reference) && preg_match('/^[1-9][0-9]*$/D', $reference)) {
-            $numericId = (int) $reference;
+        foreach ($allowedSlugs as $allowedSlug) {
+            if ($this->validateSlugFormat($allowedSlug) !== '') {
+                continue;
+            }
+
+            $allowedMap[$allowedSlug] = true;
         }
 
-        if ($numericId > 0 && isset($indexes['by_id'][$numericId])) {
-            return $numericId;
-        }
-
-        $slugKey = $this->normalizeSlug($reference);
-        if ($slugKey !== '' && isset($indexes['by_slug'][$slugKey])) {
-            return (int) $indexes['by_slug'][$slugKey];
-        }
-
-        $nameKey = $this->normalizeName($reference);
-        if ($nameKey === '' || !isset($indexes['by_name'][$nameKey])) {
-            return 0;
-        }
-
-        $nameMatches = array_values(array_unique(array_map('absint', $indexes['by_name'][$nameKey])));
-        if (count($nameMatches) !== 1) {
-            $ambiguous[$this->referenceLabel($reference)] = $nameMatches;
-
-            return 0;
-        }
-
-        return (int) $nameMatches[0];
+        return $allowedMap;
     }
 
     /**
-     * Normalize a category name for exact, case-insensitive comparison.
+     * Validate a canonical slug without rewriting or approximating it.
      *
-     * @param mixed $value Raw name.
-     * @return string
+     * @param mixed $slug Candidate slug.
+     * @return string Empty when valid, otherwise a stable rejection reason.
      */
-    private function normalizeName($value) {
-        $value = $this->decodeReference($value);
-        if ($value === '') {
-            return '';
+    private function validateSlugFormat($slug) {
+        if (!is_string($slug)) {
+            return 'slug_not_string';
         }
 
-        $value = preg_replace('/\s+/u', ' ', $value);
-        if (!is_string($value)) {
-            return '';
+        if ($slug === '' || $slug !== trim($slug)) {
+            return 'slug_invalid_format';
         }
 
-        $value = trim($value);
+        $length = function_exists('mb_strlen') ? mb_strlen($slug, 'UTF-8') : strlen($slug);
+        if ($length < 1 || $length > self::MAX_SLUG_LENGTH) {
+            return 'slug_invalid_length';
+        }
 
-        return function_exists('mb_strtolower')
-            ? mb_strtolower($value, 'UTF-8')
-            : strtolower($value);
+        if (sanitize_title($slug) !== $slug) {
+            return 'slug_invalid_format';
+        }
+
+        return '';
     }
 
     /**
-     * Normalize a category slug for exact, case-insensitive comparison.
+     * Add a safe rejected-value diagnostic without changing matching behavior.
      *
-     * @param mixed $value Raw slug.
-     * @return string
+     * @param array<string, mixed> $result Result accumulator.
+     * @param mixed                $value  Rejected raw value.
+     * @param string               $reason Stable rejection reason.
+     * @return void
      */
-    private function normalizeSlug($value) {
-        $value = $this->decodeReference($value);
-        if ($value === '') {
-            return '';
+    private function addRejection(array &$result, $value, $reason) {
+        $label = is_scalar($value) ? sanitize_text_field((string) $value) : '(invalid-type)';
+        $label = trim($label);
+
+        if ($label === '') {
+            $label = '(empty)';
         }
 
-        return strtolower(trim($value));
-    }
-
-    /**
-     * Decode stored/displayed entities before exact comparisons.
-     *
-     * @param mixed $value Raw reference.
-     * @return string
-     */
-    private function decodeReference($value) {
-        if (!is_string($value) && !is_int($value)) {
-            return '';
+        if (strlen($label) > self::MAX_SLUG_LENGTH) {
+            $label = substr($label, 0, self::MAX_SLUG_LENGTH);
         }
 
-        $value = (string) $value;
-        $value = wp_specialchars_decode($value, ENT_QUOTES);
-
-        return html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $reason = sanitize_key($reason);
+        $result['rejected_slugs'][] = $label;
+        $result['rejections'][] = array(
+            'value'  => $label,
+            'reason' => $reason,
+        );
     }
 
     /**
-     * Create a safe diagnostic label for a category reference.
+     * Record a safe hierarchy-expansion failure.
      *
-     * @param mixed $reference Raw reference.
-     * @return string
+     * @param array<int, array{term_id:int,reason:string}> $rejections Rejection accumulator.
+     * @param int                                         $termId     Missing or inconsistent ancestor ID.
+     * @param string                                      $reason     Stable rejection reason.
+     * @return void
      */
-    private function referenceLabel($reference) {
-        $label = $this->decodeReference($reference);
-        $label = sanitize_text_field($label);
+    private function addAncestorRejection(array &$rejections, $termId, $reason) {
+        $termId = absint($termId);
+        $reason = sanitize_key($reason);
 
-        return $label !== '' ? $label : '(invalid)';
-    }
+        foreach ($rejections as $rejection) {
+            if ($rejection['term_id'] === $termId && $rejection['reason'] === $reason) {
+                return;
+            }
+        }
 
-    /**
-     * Verify a resolved term still exists in the category taxonomy.
-     *
-     * @param int $termId Candidate term ID.
-     * @return bool
-     */
-    private function isValidCategoryTerm($termId) {
-        $term = get_term(absint($termId), 'category');
-
-        return $term instanceof WP_Term && $term->taxonomy === 'category';
+        $rejections[] = array(
+            'term_id' => $termId,
+            'reason'  => $reason,
+        );
     }
 }

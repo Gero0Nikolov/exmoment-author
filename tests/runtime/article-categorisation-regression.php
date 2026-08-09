@@ -18,17 +18,30 @@ $results = array();
 
 $assertSame = static function ($expected, $actual, $label) use (&$failures, &$results) {
     if ($expected === $actual) {
-        $results[] = 'PASS: ' . $label;
+        array_push($results, 'PASS: ' . $label);
 
         return;
     }
 
-    $failures[] = sprintf(
-        'FAIL: %s (expected %s, actual %s)',
-        $label,
-        wp_json_encode($expected),
-        wp_json_encode($actual)
+    array_push(
+        $failures,
+        sprintf(
+            'FAIL: %s (expected %s, actual %s)',
+            $label,
+            wp_json_encode($expected),
+            wp_json_encode($actual)
+        )
     );
+};
+
+$assertContains = static function ($needle, $haystack, $label) use (&$failures, &$results) {
+    if (is_string($haystack) && strpos($haystack, $needle) !== false) {
+        array_push($results, 'PASS: ' . $label);
+
+        return;
+    }
+
+    array_push($failures, sprintf('FAIL: %s (missing %s)', $label, wp_json_encode($needle)));
 };
 
 $insertCategory = static function ($name, $slug, $parent = 0) use (&$createdTermIds) {
@@ -46,80 +59,252 @@ $insertCategory = static function ($name, $slug, $parent = 0) use (&$createdTerm
     }
 
     $termId = absint($inserted['term_id']);
-    $createdTermIds[] = $termId;
+    array_push($createdTermIds, $termId);
 
     return $termId;
 };
 
+$categoryCount = static function () {
+    $termIds = get_terms(array(
+        'taxonomy'   => 'category',
+        'hide_empty' => false,
+        'fields'     => 'ids',
+    ));
+
+    return is_array($termIds) ? count($termIds) : -1;
+};
+
 try {
-    $alphaId = $insertCategory('CD3 Alpha First ' . $suffix, 'cd3-alpha-first-' . $suffix);
-    $strategyId = $insertCategory('CD3 Editorial Strategy ' . $suffix, 'cd3-editorial-strategy-' . $suffix);
-    $customSlugId = $insertCategory('CD3 Markets and Money ' . $suffix, 'cd3-materially-different-' . $suffix);
-    $childId = $insertCategory('CD3 Child Insights ' . $suffix, 'cd3-child-insights-' . $suffix, $strategyId);
-    $entityId = $insertCategory('CD3 Research & Analysis ' . $suffix, 'cd3-research-analysis-' . $suffix);
+    $alphaSlug = 'cd3-alpha-first-' . $suffix;
+    $strategySlug = 'cd3-editorial-strategy-' . $suffix;
+    $marketsSlug = 'cd3-materially-different-' . $suffix;
+    $childSlug = 'cd3-child-insights-' . $suffix;
+    $grandchildSlug = 'cd3-grandchild-details-' . $suffix;
+    $siblingSlug = 'cd3-sibling-insights-' . $suffix;
+    $secondBranchSlug = 'cd3-second-branch-' . $suffix;
+    $deletedSlug = 'cd3-deleted-between-' . $suffix;
+
+    $alphaId = $insertCategory('CD3 Alpha First ' . $suffix, $alphaSlug);
+    $strategyId = $insertCategory('CD3 Editorial Strategy ' . $suffix, $strategySlug);
+    $marketsId = $insertCategory('CD3 Markets and Money ' . $suffix, $marketsSlug);
+    $childId = $insertCategory('CD3 Child Insights ' . $suffix, $childSlug, $strategyId);
+    $grandchildId = $insertCategory('CD3 Grandchild Details ' . $suffix, $grandchildSlug, $childId);
+    $siblingId = $insertCategory('CD3 Sibling Insights ' . $suffix, $siblingSlug, $strategyId);
+    $secondBranchId = $insertCategory('CD3 Second Branch ' . $suffix, $secondBranchSlug, $marketsId);
+    $deletedId = $insertCategory('CD3 Deleted Between ' . $suffix, $deletedSlug);
 
     $resolver = new JobsArticleCategoryResolver();
+    $allowlist = $resolver->getAvailableCategories();
+    $allowedSlugs = $allowlist['slugs'];
 
-    $resolvedById = $resolver->resolve(array((string) $strategyId));
-    $assertSame(array($strategyId), $resolvedById['term_ids'], 'exact numeric ID is preferred');
+    $assertSame('', $allowlist['error'], 'the current WordPress category allowlist loads successfully');
+    $assertSame(true, in_array($alphaSlug, $allowedSlugs, true), 'a top-level category slug enters the AI allowlist');
+    $assertSame(true, in_array($childSlug, $allowedSlugs, true), 'a child category slug remains independently selectable');
 
-    $resolvedAlpha = $resolver->resolve(array('cd3-alpha-first-' . $suffix));
-    $assertSame(array($alphaId), $resolvedAlpha['term_ids'], 'first top-level category resolves by exact slug');
+    $alphaResolution = $resolver->resolve(array($alphaSlug), $allowedSlugs);
+    $assertSame(array($alphaId), $alphaResolution['term_ids'], 'one valid top-level category slug resolves exactly');
+    $assertSame(array($alphaId), $alphaResolution['selected_term_ids'], 'a top-level selection remains the direct selected term');
+    $assertSame(array(), $alphaResolution['ancestor_term_ids'], 'a top-level selection adds no ancestors');
 
-    $resolvedStrategy = $resolver->resolve(array(strtoupper('CD3 Editorial Strategy ' . $suffix)));
-    $assertSame(array($strategyId), $resolvedStrategy['term_ids'], 'another top-level category resolves by normalized exact name');
+    $strategyResolution = $resolver->resolve(array($strategySlug), $allowedSlugs);
+    $assertSame(array($strategyId), $strategyResolution['term_ids'], 'another top-level category slug resolves exactly');
 
-    $resolvedChild = $resolver->resolve(array('cd3-child-insights-' . $suffix));
-    $assertSame(array($childId), $resolvedChild['term_ids'], 'child category resolves without collapsing to its parent');
+    $childResolution = $resolver->resolve(array($childSlug), $allowedSlugs);
+    $assertSame(array($childId), $childResolution['selected_term_ids'], 'a child-category slug remains the direct AI-selected term');
+    $assertSame(array($strategyId), $childResolution['ancestor_term_ids'], 'a child-category selection adds its parent automatically');
+    $assertSame(array($strategyId, $childId), $childResolution['term_ids'], 'a child-category selection produces a root-to-child assignment');
 
-    $resolvedCustomSlug = $resolver->resolve(array('cd3-materially-different-' . $suffix));
-    $assertSame(array($customSlugId), $resolvedCustomSlug['term_ids'], 'materially different display name and slug resolve by exact slug');
+    $grandchildResolution = $resolver->resolve(array($grandchildSlug), $allowedSlugs);
+    $assertSame(array($grandchildId), $grandchildResolution['selected_term_ids'], 'a grandchild remains the direct AI-selected term');
+    $assertSame(array($strategyId, $childId), $grandchildResolution['ancestor_term_ids'], 'a grandchild adds its complete ancestor chain');
+    $assertSame(array($strategyId, $childId, $grandchildId), $grandchildResolution['term_ids'], 'a grandchild assignment is ordered from root to selected leaf');
 
-    $resolvedEntity = $resolver->resolve(array('CD3 Research &amp; Analysis ' . $suffix));
-    $assertSame(array($entityId), $resolvedEntity['term_ids'], 'HTML entity encoding is normalized for exact name matching');
+    $sharedParentResolution = $resolver->resolve(array($childSlug, $siblingSlug), $allowedSlugs);
+    $assertSame(array($strategyId, $childId, $siblingId), $sharedParentResolution['term_ids'], 'multiple children share one deduplicated parent');
+    $assertSame(array($strategyId), $sharedParentResolution['ancestor_term_ids'], 'a shared parent is reported once as an automatic ancestor');
 
-    $resolvedOrder = $resolver->resolve(array(
-        'cd3-materially-different-' . $suffix,
-        'cd3-alpha-first-' . $suffix,
-        'cd3-child-insights-' . $suffix,
-    ));
+    $multipleBranchResolution = $resolver->resolve(array($secondBranchSlug, $childSlug), $allowedSlugs);
     $assertSame(
-        array($customSlugId, $alphaId, $childId),
-        $resolvedOrder['term_ids'],
-        'category order does not force the first available term'
+        array($strategyId, $childId, $marketsId, $secondBranchId),
+        $multipleBranchResolution['term_ids'],
+        'multiple hierarchy branches are ordered deterministically by selected slug'
+    );
+    $reversedBranchResolution = $resolver->resolve(array($childSlug, $secondBranchSlug), $allowedSlugs);
+    $assertSame($multipleBranchResolution['term_ids'], $reversedBranchResolution['term_ids'], 'AI selection order does not change final hierarchy ordering');
+
+    $multipleResolution = $resolver->resolve(array($strategySlug, $marketsSlug), $allowedSlugs);
+    $assertSame(array($strategyId, $marketsId), $multipleResolution['term_ids'], 'multiple valid category slugs are preserved');
+
+    $duplicateResolution = $resolver->resolve(array($strategySlug, $strategySlug), $allowedSlugs);
+    $assertSame(array($strategyId), $duplicateResolution['term_ids'], 'duplicate returned slugs are deduplicated');
+    $assertSame(array($strategySlug), $duplicateResolution['selected_slugs'], 'duplicate slugs produce one canonical selection');
+
+    $unknownSlug = 'cd3-unknown-' . $suffix;
+    $termCountBeforeUnknown = $categoryCount();
+    $unknownResolution = $resolver->resolve(array($unknownSlug), $allowedSlugs);
+    $termCountAfterUnknown = $categoryCount();
+    $assertSame(array(), $unknownResolution['term_ids'], 'an unknown slug resolves to no term IDs');
+    $assertSame(array(), $unknownResolution['ancestor_term_ids'], 'an invalid slug triggers no ancestor expansion');
+    $assertSame(array($unknownSlug), $unknownResolution['rejected_slugs'], 'an unknown slug is reported explicitly');
+    $assertSame($termCountBeforeUnknown, $termCountAfterUnknown, 'an unknown slug never creates a category term');
+
+    $nameResolution = $resolver->resolve(array('CD3 Markets and Money ' . $suffix), $allowedSlugs);
+    $assertSame(array(), $nameResolution['term_ids'], 'a category name is rejected when a slug was required');
+
+    $malformedResolution = $resolver->resolve($strategySlug, $allowedSlugs);
+    $assertSame('invalid_selection_type', $malformedResolution['error'], 'a malformed non-array selection is rejected');
+
+    $emptyResolution = $resolver->resolve(array(), $allowedSlugs);
+    $assertSame('empty_selection', $emptyResolution['error'], 'an empty category array is explicit');
+
+    wp_delete_term($deletedId, 'category');
+    $createdTermIds = array_values(array_filter(
+        $createdTermIds,
+        static function ($termId) use ($deletedId) {
+            return absint($termId) !== $deletedId;
+        }
+    ));
+    $deletedResolution = $resolver->resolve(array($deletedSlug), $allowedSlugs);
+    $assertSame(array(), $deletedResolution['term_ids'], 'a category deleted after the request is not assigned');
+    $assertSame('category_term_missing', $deletedResolution['rejections'][0]['reason'], 'deleted-category rejection has a stable reason');
+
+    $orderResolution = $resolver->resolve(
+        array($strategySlug),
+        array($alphaSlug, $strategySlug, $marketsSlug)
+    );
+    $assertSame(array($strategyId), $orderResolution['term_ids'], 'allowlist order does not affect the selected category');
+    $assertSame(false, in_array($alphaId, $orderResolution['term_ids'], true), 'the first allowlist category is not a fallback');
+
+    $controllerReflection = new ReflectionClass(JobsExecutionController::class);
+    $controller = $controllerReflection->newInstanceWithoutConstructor();
+    $buildMessages = $controllerReflection->getMethod('buildMessages');
+    $parseArticleResponse = $controllerReflection->getMethod('parseArticleResponse');
+    $createPost = $controllerReflection->getMethod('createPost');
+    $logCategoryWarning = $controllerReflection->getMethod('logCategoryResolutionWarning');
+
+    $messages = $buildMessages->invoke(
+        $controller,
+        'Custom editorial prompt retained.',
+        array(
+            array(
+                'category' => 'source-library-label',
+                'filename' => 'source.md',
+                'content'  => 'A source about editorial strategy.',
+            ),
+        ),
+        'Author context retained.',
+        array(
+            array(
+                'slug' => $alphaSlug,
+                'name' => 'CD3 Alpha First ' . $suffix,
+            ),
+            array(
+                'slug' => $strategySlug,
+                'name' => 'CD3 Editorial Strategy ' . $suffix,
+            ),
+        )
+    );
+    $systemMessage = isset($messages[0]['content']) ? $messages[0]['content'] : '';
+    $assertContains('Mandatory WordPress category-selection contract', $systemMessage, 'the category contract is mandatory');
+    $assertContains($strategySlug, $systemMessage, 'the exact category slug reaches the AI request');
+    $assertContains('select only the most specific appropriate slug', $systemMessage, 'the AI is instructed to select the specific category while WordPress owns ancestor expansion');
+    $assertContains('Custom editorial prompt retained.', $systemMessage, 'a custom editorial prompt remains present');
+    $assertContains('Author context retained.', $systemMessage, 'enabled author context remains present');
+
+    $messagesWithoutAuthor = $buildMessages->invoke(
+        $controller,
+        'Global editorial prompt retained.',
+        array(
+            array(
+                'category' => 'source-library-label',
+                'filename' => 'source.md',
+                'content'  => 'A second source.',
+            ),
+        ),
+        '',
+        array(
+            array(
+                'slug' => $marketsSlug,
+                'name' => 'CD3 Markets and Money ' . $suffix,
+            ),
+        )
+    );
+    $systemWithoutAuthor = isset($messagesWithoutAuthor[0]['content']) ? $messagesWithoutAuthor[0]['content'] : '';
+    $assertContains($marketsSlug, $systemWithoutAuthor, 'the category contract remains when author context is disabled');
+    $assertContains('Global editorial prompt retained.', $systemWithoutAuthor, 'the global editorial prompt remains present');
+
+    $validResponse = sprintf(
+        "# CD3 Strategy Article\n\n<p>Focused article body.</p>\n\n===SEO_META_START===\nSEO_TITLE: CD3 Strategy Article\nSEO_DESCRIPTION: Focused strategy description.\nFOCUS_KEYPHRASE: editorial strategy\nCATEGORY_SLUGS_JSON: [\"%s\"]\n===SEO_META_END===",
+        $strategySlug
+    );
+    $parsedValidResponse = $parseArticleResponse->invoke($controller, $validResponse);
+    $assertSame(array($strategySlug), $parsedValidResponse['category_slugs'], 'the structured AI response returns a slug array');
+    $assertSame('', $parsedValidResponse['category_selection_error'], 'valid category JSON has no parse error');
+
+    $malformedResponse = "# Invalid Category Shape\n\n<p>Body.</p>\n\n===SEO_META_START===\nSEO_TITLE: Invalid Category Shape\nSEO_DESCRIPTION: Invalid category shape test.\nFOCUS_KEYPHRASE: category test\nCATEGORY_SLUGS_JSON: \"{$strategySlug}\"\n===SEO_META_END===";
+    $parsedMalformedResponse = $parseArticleResponse->invoke($controller, $malformedResponse);
+    $assertSame(array(), $parsedMalformedResponse['category_slugs'], 'a scalar category response never becomes a slug list');
+    $assertSame('category_slugs_invalid_type', $parsedMalformedResponse['category_selection_error'], 'a scalar category response has a stable parse error');
+
+    $duplicateFieldResponse = sprintf(
+        "# Duplicate Category Field\n\n<p>Body.</p>\n\n===SEO_META_START===\nSEO_TITLE: Duplicate Category Field\nSEO_DESCRIPTION: Duplicate category field test.\nFOCUS_KEYPHRASE: category test\nCATEGORY_SLUGS_JSON: [\"%s\"]\nCATEGORY_SLUGS_JSON: [\"%s\"]\n===SEO_META_END===",
+        $strategySlug,
+        $marketsSlug
+    );
+    $parsedDuplicateFieldResponse = $parseArticleResponse->invoke($controller, $duplicateFieldResponse);
+    $assertSame('category_slugs_duplicate', $parsedDuplicateFieldResponse['category_selection_error'], 'a duplicate category field has a category-specific parse error');
+    $assertSame(false, isset($parsedDuplicateFieldResponse['seo_meta']['invalid_fields']['category_slugs_json']), 'category errors remain separate from SEO validation errors');
+
+    $users = get_users(array(
+        'number' => 1,
+        'fields' => 'ID',
+    ));
+    $authorId = !empty($users) ? absint($users[0]) : 1;
+    $assignedPostId = $createPost->invoke(
+        $controller,
+        'CD3 AI Slug Assignment ' . $suffix,
+        '<p>Strict category assignment body.</p>',
+        'post',
+        'draft',
+        $authorId,
+        $grandchildResolution['term_ids']
     );
 
-    $unresolved = $resolver->resolve(array('alpha-first-' . $suffix));
-    $assertSame(array(), $unresolved['term_ids'], 'loose substring matching is rejected');
-    $assertSame(array('alpha-first-' . $suffix), $unresolved['unresolved'], 'failed matching is explicit');
+    if (is_wp_error($assignedPostId)) {
+        throw new RuntimeException($assignedPostId->get_error_message());
+    }
 
-    $malformed = $resolver->resolve(array('', null, array('not-scalar')));
-    $assertSame(array(), $malformed['term_ids'], 'empty and malformed references do not resolve');
-    $assertSame(array('(empty)', '(invalid)'), $malformed['unresolved'], 'empty and malformed references are reported explicitly');
+    $assignedPostId = absint($assignedPostId);
+    array_push($createdPostIds, $assignedPostId);
+    $assignedPostCategories = wp_get_post_categories($assignedPostId);
+    sort($assignedPostCategories, SORT_NUMERIC);
+    $expectedPostCategories = array($strategyId, $childId, $grandchildId);
+    sort($expectedPostCategories, SORT_NUMERIC);
+    $assertSame($expectedPostCategories, $assignedPostCategories, 'the selected grandchild and every validated ancestor are assigned to the post');
 
-    $controller = new JobsExecutionController();
-    $createPost = new ReflectionMethod($controller, 'createPost');
-    $resolvePostCategories = new ReflectionMethod($controller, 'resolvePostCategories');
+    $defaultPostId = $createPost->invoke(
+        $controller,
+        'CD3 No Invalid Fallback ' . $suffix,
+        '<p>Invalid selections supply no unrelated term IDs.</p>',
+        'post',
+        'draft',
+        $authorId,
+        $unknownResolution['term_ids']
+    );
+
+    if (is_wp_error($defaultPostId)) {
+        throw new RuntimeException($defaultPostId->get_error_message());
+    }
+
+    $defaultPostId = absint($defaultPostId);
+    array_push($createdPostIds, $defaultPostId);
+    $defaultPostCategories = wp_get_post_categories($defaultPostId);
+    $assertSame(false, in_array($alphaId, $defaultPostCategories, true), 'invalid selection does not assign the first allowlist term');
 
     global $wpdb;
     $logsTable = $wpdb->prefix . 'exmoau_logs';
     $previousLogId = (int) $wpdb->get_var("SELECT COALESCE(MAX(id), 0) FROM {$logsTable}"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery
-    $loggedResolution = $resolvePostCategories->invoke(
-        $controller,
-        array(
-            array(
-                'category' => 'cd3-no-such-category-' . $suffix,
-            ),
-        ),
-        'post',
-        0
-    );
-    $assertSame(
-        array('cd3-no-such-category-' . $suffix),
-        $loggedResolution['unresolved'],
-        'the execution path reports unresolved source-category context'
-    );
-
+    $logCategoryWarning->invoke($controller, 0, $allowedSlugs, $unknownResolution);
     $loggedWarningId = (int) $wpdb->get_var(
         $wpdb->prepare(
             "SELECT id FROM {$logsTable} WHERE id > %d AND source = %s AND level = %s ORDER BY id DESC LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -128,69 +313,12 @@ try {
             'warning'
         )
     ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
+
     if ($loggedWarningId > 0) {
-        $createdLogIds[] = $loggedWarningId;
-    }
-    $assertSame(true, $loggedWarningId > 0, 'failed resolution is persisted as an explicit warning');
-
-    $assignedPostId = $createPost->invoke(
-        $controller,
-        'CD3 Categorisation Assigned ' . $suffix,
-        '<p>Focused runtime validation body.</p>',
-        'post',
-        'draft',
-        1,
-        array($childId)
-    );
-
-    if (is_wp_error($assignedPostId)) {
-        throw new RuntimeException($assignedPostId->get_error_message());
+        array_push($createdLogIds, $loggedWarningId);
     }
 
-    $assignedPostId = absint($assignedPostId);
-    $createdPostIds[] = $assignedPostId;
-    $assertSame(array($childId), wp_get_post_categories($assignedPostId), 'post insertion assigns only the resolved child term');
-
-    $multiPostId = $createPost->invoke(
-        $controller,
-        'CD3 Categorisation Multi ' . $suffix,
-        '<p>Multiple legitimate source categories.</p>',
-        'post',
-        'draft',
-        1,
-        array($customSlugId, $alphaId)
-    );
-
-    if (is_wp_error($multiPostId)) {
-        throw new RuntimeException($multiPostId->get_error_message());
-    }
-
-    $multiPostId = absint($multiPostId);
-    $createdPostIds[] = $multiPostId;
-    $actualMultiIds = wp_get_post_categories($multiPostId);
-    sort($actualMultiIds);
-    $expectedMultiIds = array($customSlugId, $alphaId);
-    sort($expectedMultiIds);
-    $assertSame($expectedMultiIds, $actualMultiIds, 'multiple legitimate category matches are preserved');
-
-    $defaultPostId = $createPost->invoke(
-        $controller,
-        'CD3 Categorisation Default ' . $suffix,
-        '<p>Invalid categories must not select the first created term.</p>',
-        'post',
-        'draft',
-        1,
-        array(999999999)
-    );
-
-    if (is_wp_error($defaultPostId)) {
-        throw new RuntimeException($defaultPostId->get_error_message());
-    }
-
-    $defaultPostId = absint($defaultPostId);
-    $createdPostIds[] = $defaultPostId;
-    $defaultCategoryId = absint(get_option('default_category'));
-    $assertSame(array($defaultCategoryId), wp_get_post_categories($defaultPostId), 'invalid IDs use WordPress default behavior, not the first available fixture');
+    $assertSame(true, $loggedWarningId > 0, 'invalid AI category selection is logged separately');
 
     foreach (array_merge($results, $failures) as $line) {
         fwrite(STDOUT, $line . "\n");
@@ -208,7 +336,7 @@ try {
         )) . "\n"
     );
 } catch (Throwable $exception) {
-    $failures[] = 'FAIL: unexpected exception: ' . $exception->getMessage();
+    array_push($failures, 'FAIL: unexpected exception: ' . $exception->getMessage());
     fwrite(STDERR, end($failures) . "\n");
 } finally {
     if (!$keepFixtures) {

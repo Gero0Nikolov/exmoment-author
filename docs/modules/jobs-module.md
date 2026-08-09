@@ -25,6 +25,7 @@ Jobs module powers the `exmoau_job` lifecycle from metadata and scheduling to ex
 - Emit structured diagnostics and user-facing notices.
 - Resolve one effective editorial prompt for instant, single-scheduled, and repeating-scheduled execution.
 - Resolve optional public author context from the same effective author ID used when creating the generated post.
+- Supply the current WordPress category allowlist to article generation and strictly validate AI-selected category slugs.
 
 ## Per-Job System Prompt
 
@@ -38,15 +39,19 @@ Publish-triggered and manual Instant runs call `runJobNow()` and permit `single_
 
 ## Prompt construction
 
-`JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author output/SEO protocol, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the editorial section.
+`JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author article/SEO/category response protocol, mandatory category-selection contract and current category JSON allowlist, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the editorial section, so it cannot remove the category contract.
 
 ## Generated post categorisation
 
-The AI response does not select a WordPress category. The category context is the set of library directories that supplied actual source articles for the generation.
+`JobsArticleCategoryResolver::getAvailableCategories()` loads current terms from the `category` taxonomy, preserves child categories as independently selectable records, removes duplicate/invalid slugs, and returns only prompt-safe `slug` and `name` values. The list is sorted for stable requests, but list position has no semantic meaning.
 
-`JobsArticleCategoryResolver` resolves each source-category reference against existing terms in the `category` taxonomy. Exact valid IDs take precedence when present; other values use normalized exact slug or name matching. Duplicate-name ambiguity and unmatched values are rejected and logged. Valid child terms remain child terms, multiple legitimate source categories may all be assigned, and the resolver never creates terms or substitutes the first term returned by WordPress.
+The mandatory AI contract supplies that list as JSON and requires `CATEGORY_SLUGS_JSON` to be a JSON array containing only exact allowlisted slugs. The AI selects the most specific appropriate slug and does not need to repeat its parent slugs. One category is preferred; multiple categories are allowed only when the article genuinely spans multiple editorial topics. Names, IDs, comma-separated strings, modified slugs, and explanatory prose are not accepted.
 
-When no reference resolves, `JobsExecutionController` omits `post_category`, records a `jobs.categorisation` warning, and allows WordPress's configured default-category behavior to apply.
+After parsing, `JobsArticleCategoryResolver::resolve()` treats the selection as untrusted input. It requires a list, validates string type, format, and length, compares exact values against the original request allowlist, deduplicates selections, and verifies that every selected slug still resolves to an existing term in the `category` taxonomy. It never fuzzy-matches, accepts a name in place of a slug, creates a term, or uses category-array order as a fallback.
+
+After exact selection validation, the resolver calls WordPress's taxonomy ancestor API for each directly selected term. Each branch is ordered from its top-level ancestor to the selected child; shared ancestors are deduplicated, and branches are sorted by canonical selected slug so neither AI response order nor allowlist position controls the final array. Only the resulting validated hierarchy IDs enter `post_category`.
+
+When the selection is empty or entirely invalid, `JobsExecutionController` supplies no category IDs, records a distinct `jobs.categorisation` warning, and leaves WordPress's configured default-category behavior unchanged. Safe diagnostics distinguish selected slugs, directly selected term IDs, automatically added ancestor IDs, rejected values, hierarchy errors, and final assigned category IDs.
 
 ## Job Setup tiles
 

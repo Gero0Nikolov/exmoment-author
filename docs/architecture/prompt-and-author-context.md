@@ -22,16 +22,43 @@ The resolver reports whether the global prompt or job override won, whether an i
 
 `JobsExecutionController::buildMessages()` constructs exactly one internal system message in this order:
 
-1. `Mandatory ExMoment Author protocol (cannot be overridden)` — the `CLOSING_SYSTEM_MESSAGE` article, HTML/title, hidden SEO metadata, and response-shape requirements.
-2. `Effective editorial instructions` — either the effective AI Setup prompt or the valid custom job prompt.
-3. `Generated runtime context` — optional author context, only when enabled and resolvable.
-4. Source documents — separate internal user messages, each prefixed with its sanitized category and filename.
+1. `Mandatory ExMoment Author protocol (cannot be overridden)` — the `CLOSING_SYSTEM_MESSAGE` article, HTML/title, hidden SEO/category metadata, and response-shape requirements.
+2. `Mandatory WordPress category-selection contract (cannot be overridden)` — the exact current category JSON allowlist plus strict slug-selection rules.
+3. `Effective editorial instructions` — either the effective AI Setup prompt or the valid custom job prompt.
+4. `Generated runtime context` — optional author context, only when enabled and resolvable.
+5. Source documents — separate internal user messages, each prefixed with its sanitized library category and filename.
 
-The first three sections are combined into the single system instruction consumed by `GptController::chatCompletionCreate()`. The source messages are converted to `UserMessage` DTOs at the WordPress AI Client boundary. A custom job prompt replaces only item 2. It cannot remove, replace, or disable the mandatory article structure, title/body rules, hidden SEO block, or metadata protocol in item 1.
+The first four sections are combined into the single system instruction consumed by `GptController::chatCompletionCreate()`. The source messages are converted to `UserMessage` DTOs at the WordPress AI Client boundary. A custom job prompt replaces only item 3. It cannot remove, replace, or disable the mandatory article structure, title/body rules, hidden metadata block, category allowlist, or category-selection protocol.
 
 The same resolution and composition code is used by `JobsExecutionController::executeJob()`. `runJobNow()` permits `single_instant` jobs and is used by publish/manual entry points; `runScheduledJob()` permits `single_scheduled` and `repeating_scheduled` jobs. Both dispatch through `runJobGenerations()` and the same `executeJob()` implementation.
 
-WordPress category assignment remains outside the AI response contract. Source messages retain their library-category labels, and the post-insertion path resolves those labels deterministically against existing WordPress category IDs, names, and slugs. The model is not asked to invent or choose a category.
+## WordPress category-selection contract
+
+Before article generation, `JobsArticleCategoryResolver::getAvailableCategories()` reads current terms from the `category` taxonomy and reduces them to JSON records containing canonical `slug` and descriptive `name` values. Child terms remain independent records. Category names are data for semantic accuracy; only slugs are authoritative.
+
+The AI must return one predictable metadata field:
+
+```text
+CATEGORY_SLUGS_JSON: ["exact-existing-slug"]
+```
+
+The field must decode to a JSON list. Scalar strings, objects, comma-separated text, markdown, names, IDs, unknown slugs, approximations, and explanatory prose are invalid. The prompt tells the AI to select the most specific appropriate slug, prefers one category, permits multiple only for genuinely multi-topic articles, and permits an empty list only when no supplied category fits. The AI does not repeat parent slugs; hierarchy expansion belongs to WordPress/PHP.
+
+The canonical assignment path is:
+
+```text
+current WordPress category slug/name allowlist
+→ mandatory AI category-selection contract
+→ CATEGORY_SLUGS_JSON list
+→ exact original-allowlist validation
+→ directly selected category-term IDs
+→ WordPress ancestor lookup for each selected term
+→ deterministic root-to-leaf hierarchy IDs
+→ shared-ancestor deduplication
+→ post_category
+```
+
+The plugin owns trust enforcement, hierarchy expansion, and taxonomy assignment. It validates type, list shape, exact formatting, length, allowlist membership, deduplication, and current term existence. After direct selection validation, it uses `get_ancestors()` and validates every returned term in the `category` taxonomy before building a deterministic root-to-leaf final ID list. It does not add siblings, fuzzy-match, normalize an approximate response, accept names or IDs, create terms, or choose the first allowlist item. Empty or entirely invalid selections produce a categorisation warning and no supplied category IDs; WordPress's configured default-category behavior remains unchanged.
 
 ## Custom job system prompt persistence
 
