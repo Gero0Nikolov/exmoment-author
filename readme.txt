@@ -5,7 +5,7 @@ Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, 
 Requires at least: 7.0
 Requires PHP: 8.3
 Tested up to: 7.0
-Stable tag: 1.3.5
+Stable tag: 1.3.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,9 @@ The applicable terms and privacy policy depend on the provider selected in WordP
 5. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.3.6 =
+Improved AI article title instructions so generated post titles are standalone, article-specific, natural, and editorially appropriate instead of being derived from section headings, excerpts, opening sentences, or heading/body-text concatenation. Clarified that mandatory ExMoment Author output requirements remain active when custom job prompts or author context are used, with expanded prompt-composition and article-title regression coverage.
+
 = 1.3.5 =
 Fixed generated Yoast SEO titles so the AI-provided article title is stored with Yoast-native separator and site-name template variables. Yoast now controls the rendered site-level suffix dynamically from current settings, with regression hardening to prevent duplicate variables and preserve invalid-title handling.
 

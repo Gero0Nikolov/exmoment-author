@@ -22,13 +22,26 @@ The resolver reports whether the global prompt or job override won, whether an i
 
 `JobsExecutionController::buildMessages()` constructs exactly one internal system message in this order:
 
-1. `Mandatory ExMoment Author protocol (cannot be overridden)` — the `CLOSING_SYSTEM_MESSAGE` article, HTML/title, hidden SEO/category metadata, and response-shape requirements.
+1. `Mandatory ExMoment Author protocol (cannot be overridden)` — the `CLOSING_SYSTEM_MESSAGE` article, standalone editorial title, HTML/title, hidden SEO/category metadata, precedence, and response-shape requirements.
 2. `Mandatory WordPress category-selection contract (cannot be overridden)` — the exact current category JSON allowlist plus strict slug-selection rules.
 3. `Effective editorial instructions` — either the effective AI Setup prompt or the valid custom job prompt.
 4. `Generated runtime context` — optional author context, only when enabled and resolvable.
 5. Source documents — separate internal user messages, each prefixed with its sanitized library category and filename.
 
-The first four sections are combined into the single system instruction consumed by `GptController::chatCompletionCreate()`. The source messages are converted to `UserMessage` DTOs at the WordPress AI Client boundary. A custom job prompt replaces only item 3. It cannot remove, replace, or disable the mandatory article structure, title/body rules, hidden metadata block, category allowlist, or category-selection protocol.
+The first four sections are combined into the single system instruction consumed by `GptController::chatCompletionCreate()`. The source messages are converted to `UserMessage` DTOs at the WordPress AI Client boundary. A custom job prompt replaces only item 3. It supplements the plugin-level requirements and cannot remove, replace, or disable the mandatory article structure, title/body rules, hidden metadata block, category allowlist, or category-selection protocol. The mandatory protocol makes this precedence explicit to the model.
+
+The top-level editorial title must be a clear, compelling, standalone title that represents the complete article. It must be natural, article-specific, uniquely written, and publication-ready rather than generic or templated. It must not be copied from a section heading, opening paragraph, excerpt, or opening sentence, and it must never join an `<h2>` or other heading to the beginning of body text.
+
+The editorial title path is independent from the hidden SEO title path:
+
+```text
+leading AI # title or <h1> title
+→ JobsExecutionController::extractTitleAndBody()
+→ title sanitization in JobsExecutionController::createPost()
+→ WordPress post_title
+```
+
+The parser does not combine a correctly structured top-level title with article body text. Its legacy fallback derives a title from content only when the AI omits the required leading `#` or `<h1>` title, so the mandatory prompt explicitly prevents the malformed section-heading/body pattern without introducing heuristic title rewriting.
 
 The same resolution and composition code is used by `JobsExecutionController::executeJob()`. `runJobNow()` permits `single_instant` jobs and is used by publish/manual entry points; `runScheduledJob()` permits `single_scheduled` and `repeating_scheduled` jobs. Both dispatch through `runJobGenerations()` and the same `executeJob()` implementation.
 

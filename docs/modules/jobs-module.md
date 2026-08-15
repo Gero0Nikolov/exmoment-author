@@ -30,7 +30,7 @@ Jobs module powers the `exmoau_job` lifecycle from metadata and scheduling to ex
 
 ## Per-Job System Prompt
 
-The **Custom system prompt** meta box stores `exmoau_job_custom_system_prompt`. Blank values inherit the global AI Setup prompt. Non-empty values override only the editorial instructions; the required article/SEO response contract is always retained.
+The **Custom system prompt** meta box stores `exmoau_job_custom_system_prompt`. Blank values inherit the global AI Setup prompt. Non-empty values override only the global editorial instructions and supplement the mandatory plugin-level requirements; the required article/SEO response contract is always retained.
 
 The field preserves line breaks, rejects non-string input and values over 10,000 characters, and uses the existing job nonce, capability, autosave, revision, and validation-notice flow. It remains present when switching between Instant, Single Scheduled, and Repeating job types.
 
@@ -40,7 +40,9 @@ Publish-triggered and manual Instant runs call `runJobNow()` and permit `single_
 
 ## Prompt construction
 
-`JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author article/SEO/category response protocol, mandatory category-selection contract and current category JSON allowlist, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the editorial section, so it cannot remove the category contract.
+`JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author article/SEO/category response protocol, mandatory category-selection contract and current category JSON allowlist, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the global editorial section, so it cannot remove any mandatory output or category requirement.
+
+The mandatory protocol requires a standalone, natural, article-specific editorial title that represents the complete article. It explicitly prohibits copying a section heading, excerpt, opening paragraph, or opening sentence, and prohibits combining an `<h2>` or other heading with the beginning of body text. `extractTitleAndBody()` reads the required leading `#` or `<h1>` title, and `createPost()` sanitizes that value into `post_title`; the hidden `SEO_TITLE` remains a separate Yoast concern.
 
 The hidden `SEO_TITLE` response field contains only the article-specific plain title. After parsing and validation, `JobsExecutionController` passes it to `YoastSeoIntegration`; the AI is not responsible for Yoast separator or site-name variables.
 

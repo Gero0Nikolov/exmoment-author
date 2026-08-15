@@ -1,6 +1,7 @@
 <?php
 
 use ExMomentAuthor\Modules\Jobs\JobsArticleCategoryResolver;
+use ExMomentAuthor\Modules\Jobs\JobsAiContextResolver;
 use ExMomentAuthor\Modules\Jobs\JobsExecutionController;
 
 if (!defined('ABSPATH')) {
@@ -182,9 +183,37 @@ try {
     $createPost = $controllerReflection->getMethod('createPost');
     $logCategoryWarning = $controllerReflection->getMethod('logCategoryResolutionWarning');
 
+    $customPromptJobId = wp_insert_post(
+        array(
+            'post_title'  => 'CD3 Prompt Composition ' . $suffix,
+            'post_type'   => 'exmoau_job',
+            'post_status' => 'draft',
+        ),
+        true,
+        false
+    );
+
+    if (is_wp_error($customPromptJobId)) {
+        throw new RuntimeException($customPromptJobId->get_error_message());
+    }
+
+    $customPromptJobId = absint($customPromptJobId);
+    array_push($createdPostIds, $customPromptJobId);
+    update_post_meta(
+        $customPromptJobId,
+        JobsAiContextResolver::META_CUSTOM_SYSTEM_PROMPT,
+        'Custom editorial prompt retained.'
+    );
+    $customPromptResolution = JobsAiContextResolver::resolveSystemPrompt(
+        $customPromptJobId,
+        'Global editorial prompt should be overridden.'
+    );
+    $assertSame('job_override', $customPromptResolution['source'], 'a valid job prompt overrides only the global editorial prompt');
+    $assertSame(true, $customPromptResolution['override_used'], 'the resolver records that the custom editorial prompt won');
+
     $messages = $buildMessages->invoke(
         $controller,
-        'Custom editorial prompt retained.',
+        $customPromptResolution['prompt'],
         array(
             array(
                 'category' => 'source-library-label',
@@ -205,15 +234,30 @@ try {
         )
     );
     $systemMessage = isset($messages[0]['content']) ? $messages[0]['content'] : '';
+    $assertContains('These core output requirements always apply.', $systemMessage, 'custom instructions cannot override the mandatory output contract');
+    $assertContains('standalone article title that accurately represents the full article', $systemMessage, 'the standalone editorial title requirement reaches a custom-prompt request');
+    $assertContains('Never combine an <h2> or other heading with the beginning of body text in the title.', $systemMessage, 'the malformed heading-and-body title pattern is explicitly prohibited');
     $assertContains('Mandatory WordPress category-selection contract', $systemMessage, 'the category contract is mandatory');
     $assertContains($strategySlug, $systemMessage, 'the exact category slug reaches the AI request');
     $assertContains('select only the most specific appropriate slug', $systemMessage, 'the AI is instructed to select the specific category while WordPress owns ancestor expansion');
     $assertContains('Custom editorial prompt retained.', $systemMessage, 'a custom editorial prompt remains present');
     $assertContains('Author context retained.', $systemMessage, 'enabled author context remains present');
+    $assertSame(
+        true,
+        strpos($systemMessage, 'Mandatory ExMoment Author protocol') < strpos($systemMessage, 'Effective editorial instructions'),
+        'the mandatory protocol precedes custom editorial instructions'
+    );
+
+    $globalPromptResolution = JobsAiContextResolver::resolveSystemPrompt(
+        0,
+        'Global editorial prompt retained.'
+    );
+    $assertSame('global', $globalPromptResolution['source'], 'a job without a custom prompt uses the global editorial prompt');
+    $assertSame(false, $globalPromptResolution['override_used'], 'a job without a custom prompt records no override');
 
     $messagesWithoutAuthor = $buildMessages->invoke(
         $controller,
-        'Global editorial prompt retained.',
+        $globalPromptResolution['prompt'],
         array(
             array(
                 'category' => 'source-library-label',
@@ -230,14 +274,41 @@ try {
         )
     );
     $systemWithoutAuthor = isset($messagesWithoutAuthor[0]['content']) ? $messagesWithoutAuthor[0]['content'] : '';
+    $assertContains('These core output requirements always apply.', $systemWithoutAuthor, 'the mandatory output contract remains without a custom prompt');
+    $assertContains('standalone article title that accurately represents the full article', $systemWithoutAuthor, 'the standalone editorial title requirement reaches a global-prompt request');
+    $assertContains('Never combine an <h2> or other heading with the beginning of body text in the title.', $systemWithoutAuthor, 'the malformed title pattern remains prohibited without author context');
     $assertContains($marketsSlug, $systemWithoutAuthor, 'the category contract remains when author context is disabled');
     $assertContains('Global editorial prompt retained.', $systemWithoutAuthor, 'the global editorial prompt remains present');
+
+    $messagesWithAuthor = $buildMessages->invoke(
+        $controller,
+        'Global editorial prompt with author context retained.',
+        array(
+            array(
+                'category' => 'source-library-label',
+                'filename' => 'source.md',
+                'content'  => 'A third source.',
+            ),
+        ),
+        'Generated author context retained.',
+        array(
+            array(
+                'slug' => $strategySlug,
+                'name' => 'CD3 Editorial Strategy ' . $suffix,
+            ),
+        )
+    );
+    $systemWithAuthor = isset($messagesWithAuthor[0]['content']) ? $messagesWithAuthor[0]['content'] : '';
+    $assertContains('standalone article title that accurately represents the full article', $systemWithAuthor, 'the mandatory title requirement remains with author context enabled');
+    $assertContains('Global editorial prompt with author context retained.', $systemWithAuthor, 'the global editorial prompt remains with author context enabled');
+    $assertContains('Generated author context retained.', $systemWithAuthor, 'generated author context remains present after the mandatory title contract');
 
     $validResponse = sprintf(
         "# CD3 Strategy Article\n\n<p>Focused article body.</p>\n\n===SEO_META_START===\nSEO_TITLE: CD3 Strategy Article\nSEO_DESCRIPTION: Focused strategy description.\nFOCUS_KEYPHRASE: editorial strategy\nCATEGORY_SLUGS_JSON: [\"%s\"]\n===SEO_META_END===",
         $strategySlug
     );
     $parsedValidResponse = $parseArticleResponse->invoke($controller, $validResponse);
+    $assertSame('CD3 Strategy Article', $parsedValidResponse['title'], 'a valid standalone top-level title is parsed independently from the body');
     $assertSame(array($strategySlug), $parsedValidResponse['category_slugs'], 'the structured AI response returns a slug array');
     $assertSame('', $parsedValidResponse['category_selection_error'], 'valid category JSON has no parse error');
 
@@ -262,7 +333,7 @@ try {
     $authorId = !empty($users) ? absint($users[0]) : 1;
     $assignedPostId = $createPost->invoke(
         $controller,
-        'CD3 AI Slug Assignment ' . $suffix,
+        $parsedValidResponse['title'] . ' ' . $suffix,
         '<p>Strict category assignment body.</p>',
         'post',
         'draft',
@@ -276,6 +347,7 @@ try {
 
     $assignedPostId = absint($assignedPostId);
     array_push($createdPostIds, $assignedPostId);
+    $assertSame($parsedValidResponse['title'] . ' ' . $suffix, get_the_title($assignedPostId), 'the parsed standalone article title reaches post_title');
     $assignedPostCategories = wp_get_post_categories($assignedPostId);
     sort($assignedPostCategories, SORT_NUMERIC);
     $expectedPostCategories = array($strategyId, $childId, $grandchildId);
