@@ -105,6 +105,26 @@ class SettingsController {
     private const DEFAULT_AI_IMAGE_DIMENSIONS = '1024x1024';
 
     /**
+     * Default requested file format for AI-generated images.
+     *
+     * The legacy persistence path converted generated images to WebP whenever
+     * the active WordPress image editor supported it, so WebP preserves the
+     * observable default for existing installations.
+     */
+    private const DEFAULT_AI_IMAGE_FORMAT = 'webp';
+
+    /**
+     * Allowed requested file formats for AI-generated images.
+     *
+     * @var string[]
+     */
+    private const ALLOWED_AI_IMAGE_FORMATS = array(
+        'jpeg',
+        'webp',
+        'png',
+    );
+
+    /**
      * Allowed dimension presets for AI-generated images.
      *
      * @var string[]
@@ -532,6 +552,21 @@ class SettingsController {
 
         self::registerOptionCacheHooks($aiImageDimensionsOptionName);
 
+        $aiImageFormatOptionName = self::getOptionName('ai_image_format');
+
+        register_setting(
+            self::SETTINGS_GROUP,
+            $aiImageFormatOptionName,
+            array(
+                'type'              => 'string',
+                'sanitize_callback' => array(self::class, 'sanitizeAiImageFormat'),
+                'default'           => self::DEFAULT_AI_IMAGE_FORMAT,
+                'capability'        => 'manage_options',
+            )
+        );
+
+        self::registerOptionCacheHooks($aiImageFormatOptionName);
+
         $aiImageWidthOptionName = self::getOptionName('ai_image_width');
 
         register_setting(
@@ -915,6 +950,35 @@ class SettingsController {
         }
 
         return self::DEFAULT_AI_IMAGE_DIMENSIONS;
+    }
+
+    /**
+     * Retrieve the requested AI image file format.
+     *
+     * @return string One of jpeg, webp, or png.
+     */
+    public static function getAiImageFormat() {
+        $format = self::getOption('ai_image_format', self::DEFAULT_AI_IMAGE_FORMAT);
+
+        return self::normalizeAiImageFormatValue($format, self::DEFAULT_AI_IMAGE_FORMAT);
+    }
+
+    /**
+     * Retrieve the default requested AI image file format.
+     *
+     * @return string
+     */
+    public static function getDefaultAiImageFormat() {
+        return self::DEFAULT_AI_IMAGE_FORMAT;
+    }
+
+    /**
+     * Retrieve allowed requested AI image file formats.
+     *
+     * @return string[]
+     */
+    public static function getAllowedAiImageFormats() {
+        return self::ALLOWED_AI_IMAGE_FORMATS;
     }
 
     /**
@@ -1642,6 +1706,63 @@ class SettingsController {
     }
 
     /**
+     * Sanitize the requested AI image file format.
+     *
+     * Invalid or unauthorized submissions preserve the previous valid value.
+     *
+     * @param mixed $value Raw submitted value.
+     * @return string
+     */
+    public static function sanitizeAiImageFormat($value) {
+        $previousValue = self::normalizeAiImageFormatValue(
+            self::getOption('ai_image_format', self::DEFAULT_AI_IMAGE_FORMAT),
+            self::DEFAULT_AI_IMAGE_FORMAT
+        );
+
+        if (!current_user_can('manage_options')) {
+            add_settings_error(
+                self::SETTINGS_GROUP,
+                'exmoau_ai_image_format_capability',
+                esc_html__('You are not allowed to update the AI image format.', 'exmoment-author'),
+                'error'
+            );
+
+            return $previousValue;
+        }
+
+        $normalized = self::normalizeAiImageFormatValue($value, '');
+        if ($normalized !== '') {
+            return $normalized;
+        }
+
+        add_settings_error(
+            self::SETTINGS_GROUP,
+            'exmoau_ai_image_format_invalid',
+            esc_html__('Choose JPEG, WebP, or PNG. The previous value was preserved.', 'exmoment-author'),
+            'error'
+        );
+
+        return $previousValue;
+    }
+
+    /**
+     * Normalize an AI image format against the strict allowlist.
+     *
+     * @param mixed  $value    Raw value.
+     * @param string $fallback Fallback returned for invalid values.
+     * @return string
+     */
+    private static function normalizeAiImageFormatValue($value, $fallback) {
+        if (is_array($value)) {
+            $value = reset($value);
+        }
+
+        $value = is_string($value) ? strtolower(trim($value)) : '';
+
+        return in_array($value, self::ALLOWED_AI_IMAGE_FORMATS, true) ? $value : $fallback;
+    }
+
+    /**
      * Sanitize the AI image width submission.
      *
      * @param mixed $value Raw submitted value.
@@ -2151,6 +2272,7 @@ class SettingsController {
             'include_author_name_in_ai_context' => self::DEFAULT_INCLUDE_AUTHOR_NAME_IN_AI_CONTEXT,
             'ai_image_style_prompt'             => '',
             'ai_image_dimensions'               => self::DEFAULT_AI_IMAGE_DIMENSIONS,
+            'ai_image_format'                   => self::DEFAULT_AI_IMAGE_FORMAT,
             'ai_image_width'                    => (string) self::DEFAULT_AI_IMAGE_DIMENSION,
             'ai_image_height'                   => (string) self::DEFAULT_AI_IMAGE_DIMENSION,
         ];

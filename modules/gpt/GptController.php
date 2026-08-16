@@ -69,6 +69,11 @@ class GptController {
     private const META_AI_FEATURED_IMAGE = 'exmoau_ai_featured_image_generated';
 
     /**
+     * Maximum accepted generated image payload size (25 MiB).
+     */
+    private const MAX_AI_IMAGE_FILE_SIZE = 26214400;
+
+    /**
      * Keep featured images specific to the article and prevent repetitive subject casting.
      */
     private const FEATURED_IMAGE_COMPOSITION_INSTRUCTION = 'Editorial composition requirements: Represent the article\'s specific subject rather than a generic lifestyle scene. Include people only when they help communicate the subject. When people are included, vary their gender presentation instead of defaulting to women.';
@@ -76,23 +81,26 @@ class GptController {
     /**
      * Retrieve sanitized image generation settings from persisted configuration.
      *
-     * @return array{model: string, style_prompt: string, dimensions: string, enabled: bool}
+     * @return array{model: string, style_prompt: string, dimensions: string, format: string, enabled: bool}
      */
     private function getImageGenerationSettings() {
         $model = SettingsController::getAiImageModel();
         $stylePrompt = SettingsController::getAiImageStylePrompt();
         $dimensions = SettingsController::getAiImageDimensions();
+        $format = SettingsController::getAiImageFormat();
         $enabled = SettingsController::isAiImageGenerationEnabled();
 
         $model = ($model !== '' ? $model : SettingsController::getDefaultAiImageModel());
         $dimensions = ($dimensions !== '' ? $dimensions : SettingsController::getDefaultAiImageDimensions());
+        $format = ($format !== '' ? $format : SettingsController::getDefaultAiImageFormat());
 
-        return [
-            'model' => $model,
+        return array(
+            'model'        => $model,
             'style_prompt' => $stylePrompt,
-            'dimensions' => $dimensions,
-            'enabled' => $enabled,
-        ];
+            'dimensions'   => $dimensions,
+            'format'       => $format,
+            'enabled'      => $enabled,
+        );
     }
 
     /**
@@ -1256,8 +1264,8 @@ class GptController {
      * Generate and attach an AI-created featured image for a post.
      *
      * The method builds a concise prompt from the first ~30 words of the post content, requests one
-     * image through the WordPress AI Client, stores it under the uploads directory as WebP when
-     * supported, and assigns the resulting attachment as the post thumbnail. Execution is skipped
+     * image through the WordPress AI Client, validates and stores the returned JPEG, WebP, or PNG
+     * bytes without conversion, and assigns the resulting attachment as the post thumbnail. Execution is skipped
      * when the post already has a featured image, the
      * feature is disabled, or the prompt cannot be derived. Errors are logged in debug mode without
      * interrupting callers.
@@ -1368,6 +1376,11 @@ class GptController {
             $size = SettingsController::getDefaultAiImageDimensions();
         }
 
+        $format = $imageSettings['format'];
+        if (!is_string($format) || !in_array($format, SettingsController::getAllowedAiImageFormats(), true)) {
+            $format = SettingsController::getDefaultAiImageFormat();
+        }
+
         $this->logImageGenerationDebug(
             $postId,
             'Preparing AI image generation request.',
@@ -1375,6 +1388,7 @@ class GptController {
                 'selected_model'         => $model,
                 'prompt_length'          => strlen($prompt),
                 'requested_size'         => $size,
+                'requested_format'       => $format,
                 'debug_mode'             => false,
                 'author_context_enabled' => $authorContextEnabled,
                 'author_resolved'        => $authorContext !== '',
@@ -1388,6 +1402,7 @@ class GptController {
                     'provider'   => SettingsController::getAiProvider(),
                     'model'      => $model,
                     'dimensions' => $size,
+                    'format'     => $format,
                 )
             );
         } catch (\Throwable $exception) {
@@ -1395,9 +1410,10 @@ class GptController {
                 $postId,
                 'Unexpected image generation runtime error encountered.',
                 array(
-                    'selected_model' => $model,
-                    'requested_size' => $size,
-                    'error_message' => $this->sanitizeImageGenerationLogValue($exception->getMessage()),
+                    'selected_model'   => $model,
+                    'requested_size'   => $size,
+                    'requested_format' => $format,
+                    'error_message'    => $this->sanitizeImageGenerationLogValue($exception->getMessage()),
                 )
             );
 
@@ -1415,24 +1431,38 @@ class GptController {
         }
 
         $file = $generation['file'];
+        $requestedMimeType = isset($generation['requested_mime_type'])
+            ? strtolower(trim((string) $generation['requested_mime_type']))
+            : '';
+        $reportedMimeType = isset($generation['reported_mime_type'])
+            ? strtolower(trim((string) $generation['reported_mime_type']))
+            : '';
+        $isRemoteFile = $file->isRemote();
+        $isInlineFile = $file->isInline();
+        $payloadType = $isRemoteFile ? 'url' : ($isInlineFile ? 'b64' : '');
+        $payloadValue = $isRemoteFile
+            ? (string) $file->getUrl()
+            : ($isInlineFile ? (string) $file->getBase64Data() : '');
         $normalizedPayload = array(
-            'has_data'  => true,
+            'has_data'   => $payloadValue !== '',
             'item_count' => 1,
-            'has_url'   => $file->isRemote(),
-            'has_b64'   => $file->isInline(),
-            'type'      => $file->isRemote() ? 'url' : 'b64',
-            'value'     => $file->isRemote() ? (string) $file->getUrl() : (string) $file->getBase64Data(),
+            'has_url'    => $isRemoteFile,
+            'has_b64'    => $isInlineFile,
+            'type'       => $payloadType,
+            'value'      => $payloadValue,
         );
 
         $this->logImageGenerationDebug(
             $postId,
             'Received WordPress AI Client image generation response.',
             array(
-                'selected_model' => $model,
+                'selected_model'         => $model,
                 'response_contains_data' => $normalizedPayload['has_data'],
-                'response_item_count' => $normalizedPayload['item_count'],
-                'first_item_has_url' => $normalizedPayload['has_url'],
-                'first_item_has_b64' => $normalizedPayload['has_b64'],
+                'response_item_count'    => $normalizedPayload['item_count'],
+                'first_item_has_url'     => $normalizedPayload['has_url'],
+                'first_item_has_b64'     => $normalizedPayload['has_b64'],
+                'requested_mime_type'    => $requestedMimeType,
+                'reported_mime_type'     => $reportedMimeType,
             )
         );
 
@@ -1473,9 +1503,21 @@ class GptController {
                 );
             }
 
-            $attachmentId = $this->saveFeaturedImageFromBinary($postId, $binary, $post->post_title);
+            $attachmentId = $this->saveFeaturedImageFromBinary(
+                $postId,
+                $binary,
+                $post->post_title,
+                $requestedMimeType,
+                $reportedMimeType
+            );
         } elseif ($normalizedPayload['type'] === 'url') {
-            $attachmentId = $this->saveFeaturedImageFromUrl($postId, $normalizedPayload['value'], $post->post_title);
+            $attachmentId = $this->saveFeaturedImageFromUrl(
+                $postId,
+                $normalizedPayload['value'],
+                $post->post_title,
+                $requestedMimeType,
+                $reportedMimeType
+            );
         }
 
         if (!$attachmentId) {
@@ -1516,10 +1558,18 @@ class GptController {
      *
      * @param int    $postId    Target post identifier.
      * @param string $url       Remote image URL returned by the API.
-     * @param string $postTitle Post title used for attachment naming.
+     * @param string $postTitle          Post title used for attachment naming.
+     * @param string $requestedMimeType Requested MIME type.
+     * @param string $reportedMimeType  MIME type reported by the AI Client.
      * @return int|false
      */
-    private function saveFeaturedImageFromUrl($postId, $url, $postTitle) {
+    private function saveFeaturedImageFromUrl(
+        $postId,
+        $url,
+        $postTitle,
+        $requestedMimeType = '',
+        $reportedMimeType = ''
+    ) {
         $postId = absint($postId);
         $url = (is_string($url) ? esc_url_raw(trim($url)) : '');
 
@@ -1536,6 +1586,15 @@ class GptController {
             return false;
         }
 
+        $temporarySize = filesize($temporaryFile);
+        if (!is_int($temporarySize) || $temporarySize < 1 || $temporarySize > self::MAX_AI_IMAGE_FILE_SIZE) {
+            if (file_exists($temporaryFile)) {
+                wp_delete_file($temporaryFile);
+            }
+
+            return false;
+        }
+
         $binary = file_get_contents($temporaryFile);
 
         if (file_exists($temporaryFile)) {
@@ -1546,7 +1605,13 @@ class GptController {
             return false;
         }
 
-        return $this->saveFeaturedImageFromBinary($postId, $binary, $postTitle);
+        return $this->saveFeaturedImageFromBinary(
+            $postId,
+            $binary,
+            $postTitle,
+            $requestedMimeType,
+            $reportedMimeType
+        );
     }
 
     /**
@@ -1707,15 +1772,48 @@ class GptController {
     /**
      * Persist binary image data as an attachment and set it as the post thumbnail.
      *
-     * @param int    $postId    Target post identifier.
-     * @param string $binary    Raw binary image data.
-     * @param string $postTitle Post title used for attachment naming.
+     * @param int    $postId            Target post identifier.
+     * @param string $binary            Raw binary image data.
+     * @param string $postTitle         Post title used for attachment naming.
+     * @param string $requestedMimeType Requested MIME type.
+     * @param string $reportedMimeType  MIME type reported by the AI Client.
      * @return int|false Attachment identifier on success, false on failure.
      */
-    private function saveFeaturedImageFromBinary($postId, $binary, $postTitle) {
+    private function saveFeaturedImageFromBinary(
+        $postId,
+        $binary,
+        $postTitle,
+        $requestedMimeType = '',
+        $reportedMimeType = ''
+    ) {
         $postId = absint($postId);
         if ($postId < 1 || !is_string($binary) || $binary === '') {
             return false;
+        }
+
+        $validation = $this->validateGeneratedImageBinary($binary, $requestedMimeType, $reportedMimeType);
+        if (empty($validation['success'])) {
+            $this->logImageGenerationDebug(
+                $postId,
+                'Generated image payload failed MIME or file validation.',
+                array(
+                    'validation_error' => isset($validation['error']) ? $validation['error'] : 'invalid_image',
+                )
+            );
+
+            return false;
+        }
+
+        if (!empty($validation['mismatch'])) {
+            $this->logImageGenerationDebug(
+                $postId,
+                'Generated image MIME differed from the request or AI Client metadata; the verified file MIME was used.',
+                array(
+                    'requested_mime_type' => $validation['requested_mime_type'],
+                    'reported_mime_type'  => $validation['reported_mime_type'],
+                    'actual_mime_type'    => $validation['mime_type'],
+                )
+            );
         }
 
         $uploads = wp_upload_dir();
@@ -1723,7 +1821,12 @@ class GptController {
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 $logger = \ExMomentAuthor\Modules\Log\LogService::getInstance();
                 if ($logger instanceof \ExMomentAuthor\Modules\Log\LogService) {
-                    $logger->debug('gpt.image', sprintf('Upload directory unavailable for post %d: %s', $postId, (string) $uploads['error']), [], $postId);
+                    $logger->debug(
+                        'gpt.image',
+                        sprintf('Upload directory unavailable for post %d: %s', $postId, (string) $uploads['error']),
+                        array(),
+                        $postId
+                    );
                 }
             }
 
@@ -1738,34 +1841,25 @@ class GptController {
             wp_mkdir_p($uploads['path']);
         }
 
-        $baseName = sprintf('exmoau-ai-image-%d-%d', $postId, time());
-        $sanitizedBase = sanitize_file_name($baseName);
-        $initialFilename = wp_unique_filename($uploads['path'], $sanitizedBase . '.png');
-        $initialPath = trailingslashit($uploads['path']) . $initialFilename;
-
-        $written = file_put_contents($initialPath, $binary, LOCK_EX);
-        if ($written === false) {
+        if (!is_dir($uploads['path']) || !is_writable($uploads['path'])) {
             return false;
         }
 
-        $finalPath = $initialPath;
-        $finalMime = 'image/png';
+        $baseName = sprintf('exmoau-ai-image-%d-%d', $postId, time());
+        $sanitizedBase = sanitize_file_name($baseName);
+        $filename = wp_unique_filename(
+            $uploads['path'],
+            $sanitizedBase . '.' . $validation['extension']
+        );
+        $finalPath = trailingslashit($uploads['path']) . $filename;
 
-        $editor = wp_get_image_editor($initialPath);
-        if (!is_wp_error($editor)) {
-            $webpFilename = pathinfo($initialFilename, PATHINFO_FILENAME) . '.webp';
-            $webpFilename = wp_unique_filename($uploads['path'], sanitize_file_name($webpFilename));
-            $webpPath = trailingslashit($uploads['path']) . $webpFilename;
-            $saved = $editor->save($webpPath, 'image/webp');
-
-            if (!is_wp_error($saved) && isset($saved['path']) && is_string($saved['path']) && $saved['path'] !== '') {
-                $finalPath = $saved['path'];
-                $finalMime = isset($saved['mime-type']) ? $saved['mime-type'] : 'image/webp';
-
-                if ($finalPath !== $initialPath && file_exists($initialPath)) {
-                    wp_delete_file($initialPath);
-                }
+        $written = file_put_contents($finalPath, $binary, LOCK_EX);
+        if (!is_int($written) || $written !== strlen($binary)) {
+            if (file_exists($finalPath)) {
+                wp_delete_file($finalPath);
             }
+
+            return false;
         }
 
         if (file_exists($finalPath)) {
@@ -1779,20 +1873,36 @@ class GptController {
             }
         }
 
-        $filetype = wp_check_filetype($finalPath, null);
-        $mime = is_array($filetype) && isset($filetype['type']) && $filetype['type'] !== ''
-            ? $filetype['type']
-            : $finalMime;
+        $allowedMimes = array(
+            'jpg|jpeg' => 'image/jpeg',
+            'webp'     => 'image/webp',
+            'png'      => 'image/png',
+        );
+        $filetype = wp_check_filetype_and_ext($finalPath, $filename, $allowedMimes);
+        $verifiedMime = is_array($filetype) && isset($filetype['type'])
+            ? strtolower((string) $filetype['type'])
+            : '';
+        $verifiedExtension = is_array($filetype) && isset($filetype['ext'])
+            ? strtolower((string) $filetype['ext'])
+            : '';
 
-        $attachment = [
-            'post_mime_type' => $mime,
-            'post_title' => sanitize_text_field($postTitle !== '' ? $postTitle : basename($finalPath)),
-            'post_content' => '',
-            'post_status' => 'inherit',
-        ];
+        if ($verifiedMime !== $validation['mime_type'] || $verifiedExtension !== $validation['extension']) {
+            wp_delete_file($finalPath);
+
+            return false;
+        }
+
+        $attachment = array(
+            'post_mime_type' => $verifiedMime,
+            'post_title'     => sanitize_text_field($postTitle !== '' ? $postTitle : basename($finalPath)),
+            'post_content'   => '',
+            'post_status'    => 'inherit',
+        );
 
         $attachmentId = wp_insert_attachment($attachment, $finalPath, $postId, true);
         if (is_wp_error($attachmentId)) {
+            wp_delete_file($finalPath);
+
             return false;
         }
 
@@ -1812,6 +1922,65 @@ class GptController {
         set_post_thumbnail($postId, $attachmentId);
 
         return (int) $attachmentId;
+    }
+
+    /**
+     * Validate generated image bytes and derive authoritative attachment metadata.
+     *
+     * A supported MIME mismatch is accepted to preserve the existing featured-image
+     * success path, but callers are told to log it and persist using the verified bytes.
+     *
+     * @param mixed  $binary            Raw image bytes.
+     * @param string $requestedMimeType Requested MIME type.
+     * @param string $reportedMimeType  MIME type reported by the AI Client.
+     * @return array<string, mixed>
+     */
+    private function validateGeneratedImageBinary($binary, $requestedMimeType = '', $reportedMimeType = '') {
+        if (!is_string($binary) || $binary === '') {
+            return array(
+                'success' => false,
+                'error'   => 'empty_image',
+            );
+        }
+
+        if (strlen($binary) > self::MAX_AI_IMAGE_FILE_SIZE) {
+            return array(
+                'success' => false,
+                'error'   => 'image_too_large',
+            );
+        }
+
+        $imageInfo = @getimagesizefromstring($binary);
+        $actualMimeType = is_array($imageInfo) && isset($imageInfo['mime'])
+            ? strtolower(trim((string) $imageInfo['mime']))
+            : '';
+        $extensions = array(
+            'image/jpeg' => 'jpg',
+            'image/webp' => 'webp',
+            'image/png'  => 'png',
+        );
+
+        if (!isset($extensions[$actualMimeType])) {
+            return array(
+                'success' => false,
+                'error'   => 'unsupported_image_mime',
+            );
+        }
+
+        $requestedMimeType = strtolower(trim($requestedMimeType));
+        $reportedMimeType = strtolower(trim($reportedMimeType));
+        $mismatch = ($requestedMimeType !== '' && $requestedMimeType !== $actualMimeType)
+            || ($reportedMimeType !== '' && $reportedMimeType !== $actualMimeType);
+
+        return array(
+            'success'             => true,
+            'error'               => '',
+            'mime_type'           => $actualMimeType,
+            'extension'           => $extensions[$actualMimeType],
+            'requested_mime_type' => $requestedMimeType,
+            'reported_mime_type'  => $reportedMimeType,
+            'mismatch'            => $mismatch,
+        );
     }
 
     /**

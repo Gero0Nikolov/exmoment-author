@@ -26,6 +26,12 @@ When enabled, generation resolves the selected directive post author and supplie
 
 The option is registered as `exmoau_include_author_name_in_ai_context`, defaults to string `0`, and accepts only canonical `0`/`1` values (plus equivalent boolean/integer inputs handled by its sanitizer). `manage_options` is required. Invalid or unauthorized writes preserve the previous value and add a settings error.
 
+## AI Image Format
+
+`exmoau_ai_image_format` is registered in the existing `exmoau_settings` group and rendered in the **AI Client** tab's featured-image configuration area, immediately after Image dimensions. It defaults to `webp` and accepts only `jpeg`, `webp`, or `png`. The sanitizer requires `manage_options`; invalid or unauthorized submissions preserve the previous valid value and add a Settings API error.
+
+The setting stores only a provider-neutral format slug. `AiService` maps it to `image/jpeg`, `image/webp`, or `image/png` when configuring the WordPress AI Client request. Provider/model metadata determines whether the requested MIME is supported; credentials and provider-specific payloads remain outside the settings module.
+
 ## Prompt Precedence
 
 The global manual system prompt remains the default editorial instruction. A non-empty, valid `exmoau_job_custom_system_prompt` post-meta value replaces it for that job. Mandatory output and SEO protocol instructions are composed separately and cannot be removed by a job override.
