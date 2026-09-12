@@ -19,6 +19,11 @@ This document captures AI-related setup concerns exposed through plugin settings
 - Provider and model lists are discovered dynamically and filtered by text or image capability.
 - Empty provider/model values mean automatic selection by the WordPress AI Client.
 - ExMoment Author accepts the AI Client's inline or remote file DTO for image generation.
+- **AI Image Format** is stored as `exmoau_ai_image_format`. Allowed values are `jpeg`, `webp`, and `png`; the default is `webp` to preserve the legacy observable output, which converted generated files to WebP when the WordPress image editor supported it.
+- The control is rendered with the other featured-image settings on the **AI Client** tab, immediately after Image dimensions. It is not rendered in the separate behavior-oriented **AI Setup** tab.
+- The selected format is requested directly through the WordPress AI Client. It is not a post-generation conversion request. Provider/model capability metadata remains authoritative: the installed OpenAI adapter advertises all three formats for `gpt-image-*` models and PNG only for DALL·E models.
+- An unsupported provider/model/format combination stops with the normalized `unsupported_capability` result. ExMoment Author does not silently switch formats or models.
+- The MIME detected from the returned image bytes is authoritative for the attachment MIME and extension. JPEG uses `image/jpeg` and `.jpg`, WebP uses `image/webp` and `.webp`, and PNG uses `image/png` and `.png`. A supported MIME mismatch is retained using the verified type and recorded in safe debug diagnostics.
 - Author context is disabled by default. When enabled, only the effective post author's public WordPress display name is sent; email addresses, usernames, roles, and other user metadata are excluded.
 - The author setting applies to both article generation and featured-image prompts. When an image benefits from one primary person, the public display name guides that subject's gender presentation. The prompt does not identify the subject as the author or request a specific likeness, and it prohibits names, bylines, signatures, watermarks, logos, and other visible text.
 - A job can replace the global editorial system prompt with its **Custom system prompt** field. A blank field inherits the global prompt, and prompts longer than 10,000 characters are rejected without overwriting the previous value.
@@ -47,3 +52,5 @@ For articles, the display name is tone/voice context and does not request a byli
 ## Errors and diagnostics
 
 Administrators may see provider-neutral states for unavailable client/provider, unconfigured provider, invalid model, unsupported capability, authentication, permission/billing, rate/quota, invalid request, timeout/outage, or unknown failure. Debug logs may retain sanitized identifiers, HTTP status, exception class, capability, and timing. They must never expose credentials, raw authorization values, or unsanitized provider payloads.
+
+Image persistence rejects non-image data, formats outside JPEG/WebP/PNG, empty files, and payloads above 25 MiB. Provider-reported MIME metadata is checked, but it never overrides MIME detection from the returned bytes.

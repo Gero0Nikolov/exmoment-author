@@ -1232,7 +1232,55 @@ class JobsExecutionController {
             $this->logDebug('Job %d skipped %d oversized source file(s).', $jobId, $result['skipped_large_files']);
         }
 
+        $this->dispatchPostGeneratedEvent($postId, $jobId, $jobType, $context);
+
         return $result;
+    }
+
+    /**
+     * Announce one successfully persisted Author post to optional extensions.
+     *
+     * This informational action runs after post creation, the job back-reference,
+     * Yoast processing, and the featured-image attempt. The payload deliberately
+     * excludes article content, source material, prompts, and provider data.
+     *
+     * @param int                  $postId       Generated WordPress post ID.
+     * @param int                  $jobId        Originating Author job ID.
+     * @param string               $executionType Normalized Author job type.
+     * @param array<string, mixed> $context      Internal execution context.
+     * @return void
+     */
+    private function dispatchPostGeneratedEvent($postId, $jobId, $executionType, array $context) {
+        $postId = absint($postId);
+        $jobId = absint($jobId);
+        $executionType = sanitize_key((string) $executionType);
+        $allowedExecutionTypes = array('single_instant', 'single_scheduled', 'repeating_scheduled');
+
+        if ($postId < 1 || $jobId < 1 || !in_array($executionType, $allowedExecutionTypes, true)) {
+            return;
+        }
+
+        $generationIndex = isset($context['generation_iteration']) ? absint($context['generation_iteration']) : 1;
+        $generationCount = isset($context['generation_total']) ? absint($context['generation_total']) : 1;
+        $generationIndex = max(1, $generationIndex);
+        $generationCount = max($generationIndex, $generationCount);
+        $trigger = isset($context['trigger']) ? sanitize_key((string) $context['trigger']) : '';
+
+        if (!in_array($trigger, array('manual', 'publish', 'schedule'), true)) {
+            $trigger = '';
+        }
+
+        do_action(
+            'exmoau_post_generated',
+            $postId,
+            $jobId,
+            array(
+                'executionType'   => $executionType,
+                'generationIndex' => $generationIndex,
+                'generationCount' => $generationCount,
+                'trigger'         => $trigger,
+            )
+        );
     }
 
     /**

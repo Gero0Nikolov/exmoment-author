@@ -27,7 +27,9 @@
 
 ## Image boundary
 
-`generateFeaturedImageForPost()` resolves plugin image settings, derives a concise topic-first prompt, discourages generic or repetitively gendered stock imagery, optionally appends public-author casting context, and calls `AiService::generateImage()`. If the article benefits from a primary human subject, the author context uses the public display name as a guarded gender-presentation cue; ambiguous names fall back to a gender-neutral or person-free composition. It accepts the returned inline or remote `File` DTO, writes a WordPress media attachment, and assigns the thumbnail. It does not build provider-specific payloads or choose provider-specific fallbacks.
+`generateFeaturedImageForPost()` resolves plugin image settings, derives a concise topic-first prompt, discourages generic or repetitively gendered stock imagery, optionally appends public-author casting context, and calls `AiService::generateImage()`. The configured image format crosses this service boundary as `jpeg`, `webp`, or `png`; provider-specific request details remain inside the WordPress AI Client and adapter. If the article benefits from a primary human subject, the author context uses the public display name as a guarded gender-presentation cue; ambiguous names fall back to a gender-neutral or person-free composition.
+
+For inline and remote `File` DTOs, persistence validates the decoded/downloaded bytes with image inspection, permits only JPEG/WebP/PNG, enforces a 25 MiB limit, derives the filename extension and attachment MIME from the verified bytes, writes with restricted permissions, generates WordPress attachment metadata, and assigns the thumbnail. A mismatch between requested/reported and actual MIME is accepted only when the actual type is allowlisted; the actual type is used and the mismatch is logged safely. No post-generation format conversion occurs.
 
 ## Related docs
 

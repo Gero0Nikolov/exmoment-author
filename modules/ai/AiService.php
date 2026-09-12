@@ -218,7 +218,7 @@ class AiService {
      * Generate an image through the WordPress AI Client.
      *
      * @param string $prompt Sanitized image prompt.
-     * @param array  $options Provider, model, and aspect ratio preferences.
+     * @param array  $options Provider, model, aspect ratio, and output format preferences.
      * @return array<string, mixed>
      */
     public function generateImage($prompt, array $options = array()) {
@@ -228,9 +228,15 @@ class AiService {
         $status = $this->getStatus($providerId, $modelId, 'image');
         $status['operation'] = 'image_generation';
         $status['capability'] = 'image_generation';
+        $hasRequestedFormat = array_key_exists('format', $options);
+        $outputMimeType = $this->normalizeImageOutputMimeType($options['format'] ?? '');
 
         if ($status['connection_status'] !== 'connected') {
             return $this->failure($status['connection_status'], $status, $startedAt);
+        }
+
+        if ($hasRequestedFormat && $outputMimeType === '') {
+            return $this->failure('invalid_request', $status, $startedAt, 'Invalid image output format requested.');
         }
 
         try {
@@ -242,8 +248,17 @@ class AiService {
                 $builder->as_output_media_aspect_ratio($aspectRatio);
             }
 
+            if ($outputMimeType !== '') {
+                $builder = $this->applyImageOutputMimeType($builder, $outputMimeType);
+            }
+
             if (!$builder->is_supported_for_image_generation()) {
-                return $this->failure('unsupported_capability', $status, $startedAt);
+                return $this->failure(
+                    'unsupported_capability',
+                    $status,
+                    $startedAt,
+                    $outputMimeType !== '' ? 'The selected model does not support the requested image MIME type.' : ''
+                );
             }
 
             $file = $builder->generate_image();
@@ -265,14 +280,75 @@ class AiService {
             return $this->failure('invalid_response', $status, $startedAt);
         }
 
+        $reportedMimeType = strtolower(trim($file->getMimeType()));
+        if (!in_array($reportedMimeType, $this->getAllowedImageMimeTypes(), true)) {
+            return $this->failure(
+                'invalid_response',
+                $status,
+                $startedAt,
+                'The AI Client returned a file outside the allowed image MIME types.'
+            );
+        }
+
         return array(
-            'success'     => true,
-            'file'        => $file,
-            'provider'    => $status['selected_provider'],
-            'model'       => $status['selected_model'],
-            'timing_ms'   => $this->getTiming($startedAt),
-            'diagnostics' => null,
+            'success'             => true,
+            'file'                => $file,
+            'provider'            => $status['selected_provider'],
+            'model'               => $status['selected_model'],
+            'requested_mime_type' => $outputMimeType,
+            'reported_mime_type'  => $reportedMimeType,
+            'timing_ms'           => $this->getTiming($startedAt),
+            'diagnostics'         => null,
         );
+    }
+
+    /**
+     * Convert an administrator-facing image format to its MIME type.
+     *
+     * @param mixed $format Requested image format.
+     * @return string Empty when no valid format was supplied.
+     */
+    private function normalizeImageOutputMimeType($format) {
+        if (!is_string($format)) {
+            return '';
+        }
+
+        $mimeTypes = array(
+            'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            'png'  => 'image/png',
+        );
+        $format = strtolower(trim($format));
+
+        return isset($mimeTypes[$format]) ? $mimeTypes[$format] : '';
+    }
+
+    /**
+     * Return MIME types accepted from the AI image boundary.
+     *
+     * @return string[]
+     */
+    private function getAllowedImageMimeTypes() {
+        return array(
+            'image/jpeg',
+            'image/webp',
+            'image/png',
+        );
+    }
+
+    /**
+     * Apply a validated output MIME type to the WordPress prompt builder.
+     *
+     * @param object $builder        WordPress AI prompt builder.
+     * @param string $outputMimeType Validated output MIME type.
+     * @return object
+     */
+    private function applyImageOutputMimeType($builder, $outputMimeType) {
+        if (!in_array($outputMimeType, $this->getAllowedImageMimeTypes(), true)) {
+            return $builder;
+        }
+
+        return $builder->as_output_mime_type($outputMimeType);
     }
 
     /**
@@ -571,6 +647,7 @@ class AiService {
             'timeout_or_outage'         => __('The AI provider timed out or is temporarily unavailable. Please try again.', 'exmoment-author'),
             'unknown_error'             => __('The AI request failed for an unknown reason. Enable WordPress debug logging for diagnostics.', 'exmoment-author'),
             'empty_response'           => __('The AI provider returned an empty response.', 'exmoment-author'),
+            'invalid_response'         => __('The AI provider returned an invalid image response.', 'exmoment-author'),
         );
 
         return isset($messages[$code])

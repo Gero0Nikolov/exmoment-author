@@ -77,6 +77,24 @@ $suggestedProviders = array(
     </td>
 </tr>
 <tr>
+    <th scope="row"><label for="exmoau_ai_image_format"><?php esc_html_e('AI Image Format', 'exmoment-author'); ?></label></th>
+    <td>
+        <select name="<?php echo esc_attr(SettingsController::getOptionFieldName('ai_image_format')); ?>" id="exmoau_ai_image_format">
+            <?php
+            $imageFormatLabels = array(
+                'jpeg' => __('JPEG', 'exmoment-author'),
+                'webp' => __('WebP', 'exmoment-author'),
+                'png'  => __('PNG', 'exmoment-author'),
+            );
+            foreach (SettingsController::getAllowedAiImageFormats() as $imageFormat) :
+                ?>
+                <option value="<?php echo esc_attr($imageFormat); ?>" <?php selected(SettingsController::getAiImageFormat(), $imageFormat); ?>><?php echo esc_html($imageFormatLabels[$imageFormat]); ?></option>
+            <?php endforeach; ?>
+        </select>
+        <p class="description"><?php esc_html_e('Requested directly from the selected image model. Format support varies by provider and model; the returned file type is validated independently.', 'exmoment-author'); ?></p>
+    </td>
+</tr>
+<tr>
     <th scope="row"><label for="exmoau_ai_provider"><?php esc_html_e('AI provider', 'exmoment-author'); ?></label></th>
     <td>
         <select name="<?php echo esc_attr(SettingsController::getOptionFieldName('ai_provider')); ?>" id="exmoau_ai_provider">

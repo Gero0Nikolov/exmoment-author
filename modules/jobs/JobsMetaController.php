@@ -539,7 +539,12 @@ class JobsMetaController {
         }
 
         $library = $this->getLibraryStructure();
-        $directories = $this->getMixtureDirectoriesValue($post->ID);
+        $directories = array_values(
+            array_intersect(
+                $this->getMixtureDirectoriesValue($post->ID),
+                array_keys($library)
+            )
+        );
         $uniqueness = $this->getMixtureUniquenessValue($post->ID);
         $perCategory = $this->getMixturePerCategoryValue($post->ID);
         $directiveSettings = $this->getDirectiveSettings($post->ID);

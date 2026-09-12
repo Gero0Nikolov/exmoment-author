@@ -38,6 +38,8 @@ The field preserves line breaks, rejects non-string input and values over 10,000
 
 Publish-triggered and manual Instant runs call `runJobNow()` and permit `single_instant`. Scheduler dispatch calls `runScheduledJob()` and permits `single_scheduled` or `repeating_scheduled`. Both routes call `runJobGenerations()` and the same private `executeJob()` method, so prompt resolution, author context, source collection, AI invocation, response parsing, post creation, SEO metadata, and optional image generation share one implementation.
 
+After each individual generation has successfully created its final WordPress post, `executeJob()` emits the generic `exmoau_post_generated` action. This happens after the post back-reference, Yoast update, and featured-image attempt, including for every post in a multi-generation run. The event carries only the generated post ID, originating job ID, and four allowlisted execution fields. Extensions must reload canonical post data through WordPress APIs; Author never supplies article content or integration-specific state in the event. See [Hooks](../architecture/hooks.md) for the complete contract.
+
 ## Prompt construction
 
 `JobsAiContextResolver::resolveSystemPrompt()` chooses the global AI Setup prompt or a valid job override. `JobsExecutionController::buildMessages()` then creates one system instruction in this exact order: mandatory ExMoment Author article/SEO/category response protocol, mandatory category-selection contract and current category JSON allowlist, effective editorial instructions, optional generated author context. Each sanitized source follows as a separate user message. The job override can replace only the global editorial section, so it cannot remove any mandatory output or category requirement.
