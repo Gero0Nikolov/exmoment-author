@@ -5,7 +5,7 @@ Tags: ai-content, editorial-workflow, content-cheduling, publishing-automation, 
 Requires at least: 7.0
 Requires PHP: 8.3
 Tested up to: 7.0
-Stable tag: 1.3.6
+Stable tag: 1.3.7
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,9 @@ The applicable terms and privacy policy depend on the provider selected in WordP
 5. (Optional) Create jobs via the Jobs screen (admin-only): add a new job, select a mode (Single – Instant, Single – Scheduled, Repeating – Scheduled), configure sources, and publish.
 
 == Changelog ==
+= 1.3.7 =
+Added JPEG, WebP, and PNG selection for AI-generated featured images, with provider MIME-type requests and independent validation of returned image bytes before attachment storage. Added the exmoau_post_generated action after successful post persistence, Yoast processing, and the featured-image attempt so optional extensions can react to generated posts. Fixed job setup tab loading when saved library selections reference directories that are no longer available, while preserving strict AJAX validation.
+
 = 1.3.6 =
 Improved AI article title instructions so generated post titles are standalone, article-specific, natural, and editorially appropriate instead of being derived from section headings, excerpts, opening sentences, or heading/body-text concatenation. Clarified that mandatory ExMoment Author output requirements remain active when custom job prompts or author context are used, with expanded prompt-composition and article-title regression coverage.
 
